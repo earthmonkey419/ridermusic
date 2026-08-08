@@ -4,6 +4,7 @@ from flask import request, jsonify, g
 from config import MAX_QUEUE_ADDS_PER_SESSION
 from ridermusic_sessions import get_db, require_active_session, log_action
 from ridermusic_player import get_plex
+from ridermusic_playback import get_playback_state, advance_to_next
 
 
 def register_guest_routes(app):
@@ -70,6 +71,10 @@ def register_guest_routes(app):
         )
         db.commit()
         log_action(db, session_id, "queue_add", detail=track.title)
+
+        state = get_playback_state(db, session_id)
+        if not state["current_queue_id"]:
+            advance_to_next(db, session_id, mark_current_played=False)
 
         return jsonify({"added": True, "title": track.title, "artist": track.grandparentTitle})
 

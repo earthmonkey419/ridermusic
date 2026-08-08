@@ -4,6 +4,7 @@ from ridermusic_sessions import register_join_route, teardown_db, require_active
 from ridermusic_admin import register_admin_routes
 from ridermusic_player import register_player_routes
 from ridermusic_guest import register_guest_routes
+from ridermusic_playback import register_playback_routes
 
 app = Flask(__name__)
 app.teardown_appcontext(teardown_db)
@@ -11,6 +12,7 @@ register_join_route(app)
 register_admin_routes(app)
 register_player_routes(app)
 register_guest_routes(app)
+register_playback_routes(app)
 
 
 @app.route("/guest")

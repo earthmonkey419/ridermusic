@@ -36,10 +36,23 @@ CREATE TABLE IF NOT EXISTS queue (
     played      INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS playback_state (
+    session_id        TEXT PRIMARY KEY,
+    current_queue_id  INTEGER,
+    is_playing        INTEGER DEFAULT 0,
+    position_ms       INTEGER DEFAULT 0,
+    volume            INTEGER DEFAULT 50,
+    last_skip_at      REAL,
+    updated_at        REAL
+);
+
 CREATE TABLE IF NOT EXISTS config (
     key    TEXT PRIMARY KEY,
     value  TEXT
 );
+
+INSERT OR IGNORE INTO config (key, value) VALUES ('volume_ceiling', '80');
+INSERT OR IGNORE INTO config (key, value) VALUES ('skip_rate_limit_seconds', '20');
 """)
 conn.commit()
 conn.close()
