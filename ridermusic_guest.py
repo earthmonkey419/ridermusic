@@ -1,10 +1,20 @@
 import time
 from flask import request, jsonify, g
 
-from config import MAX_QUEUE_ADDS_PER_SESSION
+from config import MAX_QUEUE_ADDS_PER_SESSION, MUSIC_LIB
 from ridermusic_sessions import get_db, require_active_session, log_action
 from ridermusic_player import get_plex
 from ridermusic_playback import get_playback_state, advance_to_next
+
+
+def _track_to_dict(t):
+    return {
+        "rating_key": t.ratingKey,
+        "title": t.title,
+        "artist": getattr(t, "grandparentTitle", None),
+        "album": getattr(t, "parentTitle", None),
+        "duration_ms": getattr(t, "duration", None),
+    }
 
 
 def register_guest_routes(app):
@@ -17,19 +27,44 @@ def register_guest_routes(app):
             return jsonify({"results": []})
 
         plex = get_plex()
-        tracks = plex.search(q, mediatype="track", limit=25)
+        section = plex.library.section(MUSIC_LIB)
+        q_lower = q.lower()
 
-        results = [
-            {
-                "rating_key": t.ratingKey,
-                "title": t.title,
-                "artist": getattr(t, "grandparentTitle", None),
-                "album": getattr(t, "parentTitle", None),
-                "duration_ms": getattr(t, "duration", None),
-            }
-            for t in tracks
-        ]
-        return jsonify({"results": results})
+        results = []
+        seen_keys = set()
+
+        # Layer 1: literal artist name match -> that artist's own tracks.
+        # Server-side artist filters proved unreliable across several
+        # attempts tonight; fetching all artists (574, cheap) and matching
+        # in Python is slower per-call but actually correct.
+        all_artists = section.searchArtists()
+        matching_artists = [a for a in all_artists if q_lower in a.title.lower()]
+        for artist in matching_artists[:5]:
+            for t in artist.tracks()[:15]:
+                if t.ratingKey not in seen_keys:
+                    seen_keys.add(t.ratingKey)
+                    results.append(_track_to_dict(t))
+
+        # Layer 2: literal track title match, confirmed working via
+        # searchTracks(title__icontains=...).
+        if len(results) < 25:
+            title_matches = section.searchTracks(title__icontains=q, limit=25)
+            for t in title_matches:
+                if t.ratingKey not in seen_keys:
+                    seen_keys.add(t.ratingKey)
+                    results.append(_track_to_dict(t))
+
+        # Layer 3: fuzzy hub search fallback, only when nothing literal
+        # matched. This is what keeps mood-pill searches (chill, dance,
+        # 80s) working, since those aren't artist or track names.
+        if not results:
+            hub_results = plex.search(q, mediatype="track", limit=25)
+            for t in hub_results:
+                if t.ratingKey not in seen_keys:
+                    seen_keys.add(t.ratingKey)
+                    results.append(_track_to_dict(t))
+
+        return jsonify({"results": results[:25]})
 
     @app.route("/guest/queue/add", methods=["POST"])
     @require_active_session
