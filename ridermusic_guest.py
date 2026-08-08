@@ -1,4 +1,5 @@
 import time
+import random
 from flask import request, jsonify, g
 
 from config import MAX_QUEUE_ADDS_PER_SESSION, MUSIC_LIB
@@ -15,6 +16,55 @@ def _track_to_dict(t):
         "album": getattr(t, "parentTitle", None),
         "duration_ms": getattr(t, "duration", None),
     }
+
+
+# Broad mood buckets mapped to keyword substrings, matched against the
+# real (very granular) genre tags in the library — e.g. "Disco" needs to
+# catch "disco", "cosmic disco", "italo disco", not just a literal tag
+# named exactly "Disco", which may not exist.
+MOOD_BUCKETS = {
+    "chill": ["chill", "mellow", "lounge", "ambient", "downtempo", "easy listening"],
+    "dance": ["dance", "disco", "house", "electro", "funk"],
+    "r&b": ["r&b", "soul", "motown"],
+    "disco": ["disco"],
+    "80s": ["80s"],
+    "country": ["country", "bluegrass", "americana"],
+}
+
+
+def _genre_bucket_tracks(section, bucket_key, limit=25, pool_size=60):
+    """Pulls a pool of popular tracks (sorted by ratingCount, Plex's
+    own documented popularity metric) across every real genre tag
+    matching this bucket's keywords, then randomly samples from that
+    pool -- so repeated clicks on the same mood pill return varied
+    results, biased toward popular tracks rather than always the
+    exact same top matches in the same order."""
+    bucket_key = bucket_key.lower()
+    keywords = MOOD_BUCKETS.get(bucket_key, [bucket_key])
+    all_genres = section.listFilterChoices("genre", libtype="track")
+    matching_tags = [
+        g.title for g in all_genres
+        if any(kw in g.title.lower() for kw in keywords)
+    ]
+
+    pool = []
+    seen_keys = set()
+    for tag in matching_tags:
+        if len(pool) >= pool_size:
+            break
+        tracks = section.searchTracks(
+            **{"track.genre": tag}, limit=15, sort="ratingCount:desc"
+        )
+        for t in tracks:
+            if t.ratingKey not in seen_keys:
+                seen_keys.add(t.ratingKey)
+                pool.append(t)
+            if len(pool) >= pool_size:
+                break
+
+    sample_size = min(limit, len(pool))
+    sampled = random.sample(pool, sample_size) if pool else []
+    return [_track_to_dict(t) for t in sampled]
 
 
 def register_guest_routes(app):
@@ -34,9 +84,6 @@ def register_guest_routes(app):
         seen_keys = set()
 
         # Layer 1: literal artist name match -> that artist's own tracks.
-        # Server-side artist filters proved unreliable across several
-        # attempts tonight; fetching all artists (574, cheap) and matching
-        # in Python is slower per-call but actually correct.
         all_artists = section.searchArtists()
         matching_artists = [a for a in all_artists if q_lower in a.title.lower()]
         for artist in matching_artists[:5]:
@@ -45,8 +92,7 @@ def register_guest_routes(app):
                     seen_keys.add(t.ratingKey)
                     results.append(_track_to_dict(t))
 
-        # Layer 2: literal track title match, confirmed working via
-        # searchTracks(title__icontains=...).
+        # Layer 2: literal track title match.
         if len(results) < 25:
             title_matches = section.searchTracks(title__icontains=q, limit=25)
             for t in title_matches:
@@ -54,9 +100,7 @@ def register_guest_routes(app):
                     seen_keys.add(t.ratingKey)
                     results.append(_track_to_dict(t))
 
-        # Layer 3: fuzzy hub search fallback, only when nothing literal
-        # matched. This is what keeps mood-pill searches (chill, dance,
-        # 80s) working, since those aren't artist or track names.
+        # Layer 3: fuzzy hub search fallback, only when nothing literal matched.
         if not results:
             hub_results = plex.search(q, mediatype="track", limit=25)
             for t in hub_results:
@@ -65,6 +109,18 @@ def register_guest_routes(app):
                     results.append(_track_to_dict(t))
 
         return jsonify({"results": results[:25]})
+
+    @app.route("/guest/mood")
+    @require_active_session
+    def guest_mood():
+        bucket = request.args.get("bucket", "").strip().lower()
+        if bucket not in MOOD_BUCKETS:
+            return jsonify({"results": []})
+
+        plex = get_plex()
+        section = plex.library.section(MUSIC_LIB)
+        results = _genre_bucket_tracks(section, bucket)
+        return jsonify({"results": results})
 
     @app.route("/guest/queue/add", methods=["POST"])
     @require_active_session
@@ -114,10 +170,19 @@ def register_guest_routes(app):
     def guest_queue_view():
         db = get_db()
         session_id = g.session["session_id"]
+
+        # Exclude the currently-playing track: it's marked played=0 while
+        # it plays (only flipped to played=1 when something advances past
+        # it), so without this it shows up as both "Now Playing" and the
+        # first item in "Up Next".
+        state = get_playback_state(db, session_id)
+        current_id = state["current_queue_id"]
+
         rows = db.execute(
             "SELECT rating_key, title, artist, duration_ms, added_at FROM queue "
-            "WHERE session_id = ? AND played = 0 ORDER BY added_at ASC",
-            (session_id,)
+            "WHERE session_id = ? AND played = 0 AND id != COALESCE(?, -1) "
+            "ORDER BY added_at ASC",
+            (session_id, current_id)
         ).fetchall()
 
         return jsonify({
@@ -139,7 +204,7 @@ GUEST_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic</title>
+<title>RiderMusic for Plex</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -170,7 +235,7 @@ GUEST_PAGE = """
   header .logo {
     font-family: 'Sora', sans-serif;
     font-weight: 800;
-    font-size: 1.3em;
+    font-size: 1.2em;
   }
   header .logo span { color: var(--cta); }
 
@@ -305,13 +370,24 @@ GUEST_PAGE = """
   }
   .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
   .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
+
+  #footer {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.75em;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+  #footer a { color: var(--accent); text-decoration: none; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <span class="logo">Rider<span>Music</span></span>
+    <span class="logo">Rider<span>Music</span> for Plex</span>
   </header>
 
   <h1>Be the <span class="hl">DJ</span> for your ride</h1>
@@ -322,11 +398,12 @@ GUEST_PAGE = """
   </div>
 
   <div class="mood-row">
-    <button class="mood-pill" data-q="chill">Chill</button>
-    <button class="mood-pill" data-q="dance">Dance</button>
-    <button class="mood-pill" data-q="r&b">R&amp;B</button>
-    <button class="mood-pill" data-q="disco">Disco</button>
-    <button class="mood-pill" data-q="80s">80s</button>
+    <button class="mood-pill" data-bucket="chill">Chill</button>
+    <button class="mood-pill" data-bucket="dance">Dance</button>
+    <button class="mood-pill" data-bucket="r&b">R&amp;B</button>
+    <button class="mood-pill" data-bucket="disco">Disco</button>
+    <button class="mood-pill" data-bucket="80s">80s</button>
+    <button class="mood-pill" data-bucket="country">Country</button>
   </div>
 
   <div id="search-results"></div>
@@ -345,6 +422,13 @@ GUEST_PAGE = """
 
   <h3>Up Next</h3>
   <div class="card" id="queue"></div>
+
+  <div id="footer">
+    © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
+    <a href="https://vp-fun.com">vp-fun.com</a> ·
+    From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
+    Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+  </div>
 
 </div>
 
@@ -390,22 +474,14 @@ async function refreshQueue() {
   });
 }
 
-function runSearch(q) {
-  document.getElementById('search-box').value = q;
-  doSearch(q);
-}
-
-async function doSearch(q) {
-  if (!q) return;
-  const res = await fetch('/guest/search?q=' + encodeURIComponent(q));
-  const data = await res.json();
+function renderResults(results) {
   const el = document.getElementById('search-results');
   el.innerHTML = '';
-  if (data.results.length === 0) {
+  if (results.length === 0) {
     el.innerHTML = '<div class="empty-hint">No matches — try another search</div>';
     return;
   }
-  for (const t of data.results) {
+  for (const t of results) {
     const div = document.createElement('div');
     div.className = 'result-row';
     div.innerHTML = '<div class="result-info"><div class="t">' + t.title +
@@ -432,6 +508,19 @@ async function doSearch(q) {
   }
 }
 
+async function doSearch(q) {
+  if (!q) return;
+  const res = await fetch('/guest/search?q=' + encodeURIComponent(q));
+  const data = await res.json();
+  renderResults(data.results);
+}
+
+async function doMood(bucket) {
+  const res = await fetch('/guest/mood?bucket=' + encodeURIComponent(bucket));
+  const data = await res.json();
+  renderResults(data.results);
+}
+
 document.getElementById('search-btn').addEventListener('click', () => {
   doSearch(document.getElementById('search-box').value.trim());
 });
@@ -439,7 +528,7 @@ document.getElementById('search-box').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') doSearch(e.target.value.trim());
 });
 document.querySelectorAll('.mood-pill').forEach(btn => {
-  btn.addEventListener('click', () => runSearch(btn.dataset.q));
+  btn.addEventListener('click', () => doMood(btn.dataset.bucket));
 });
 
 document.getElementById('play-pause-btn').addEventListener('click', async () => {
