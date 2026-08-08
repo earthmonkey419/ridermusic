@@ -414,6 +414,8 @@ GUIDE_PAGE = """
   <a class="back" href="/admin/dashboard">&larr; Back to dashboard</a>
   <div class="logo">Rider<span class="accent">Music</span> for Plex — Guide</div>
 
+  <h3><a href="/admin/sign">Print a QR sign for your car &rarr;</a></h3>
+
   <h3>The QR code</h3>
   <p>The QR code always points at the same <code>/join</code> link — print
   it once and leave it in the car. It never carries access itself, only
