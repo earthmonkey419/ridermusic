@@ -17,10 +17,6 @@ def register_guest_routes(app):
             return jsonify({"results": []})
 
         plex = get_plex()
-        # Plex's hub search: relevance-ranked, not strict substring matching.
-        # Known limitation: can surface closely-related artists (e.g. band
-        # members) alongside literal matches. Acceptable for v1; revisit if
-        # guest feedback shows it's confusing in practice.
         tracks = plex.search(q, mediatype="track", limit=25)
 
         results = [
@@ -104,44 +100,239 @@ def register_guest_routes(app):
 
 GUEST_PAGE = """
 <!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 1em; }
-  h2 { margin-bottom: 0.2em; }
-  #now-playing { padding: 1em; background: #f2f2f2; border-radius: 8px; margin-bottom: 1em; }
-  #controls button { font-size: 1.3em; padding: 0.4em 0.8em; margin-right: 0.5em; }
-  #search-results div, #queue div { padding: 0.5em; border-bottom: 1px solid #ddd; }
-  #search-results button, #queue-add-hint { font-size: 0.9em; }
-  input[type=text] { width: 70%; padding: 0.5em; font-size: 1em; }
-  #search-btn { padding: 0.5em 1em; font-size: 1em; }
+  :root {
+    --bg: #224248;
+    --panel: #325e6a;
+    --accent: #44a1a4;
+    --cta: #ff9a00;
+    --text: #eef6f6;
+    --text-muted: #9fc2c4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    padding-bottom: 3em;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 1.25em 1em; }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-bottom: 1.25em;
+  }
+  header .logo {
+    font-family: 'Sora', sans-serif;
+    font-weight: 800;
+    font-size: 1.3em;
+  }
+  header .logo span { color: var(--cta); }
+
+  h1 {
+    font-family: 'Sora', sans-serif;
+    font-weight: 800;
+    font-size: 1.7em;
+    line-height: 1.15;
+    margin: 0 0 0.6em 0;
+  }
+  h1 .hl { color: var(--cta); }
+
+  h3 {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 1.4em 0 0.6em 0;
+  }
+
+  .search-row {
+    display: flex;
+    gap: 0.5em;
+    margin-bottom: 0.8em;
+  }
+  #search-box {
+    flex: 1;
+    padding: 0.85em 1em;
+    border-radius: 10px;
+    border: none;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 1em;
+    font-family: 'Inter', sans-serif;
+  }
+  #search-box::placeholder { color: var(--text-muted); }
+  #search-btn {
+    padding: 0.85em 1.2em;
+    border-radius: 10px;
+    border: none;
+    background: var(--cta);
+    color: #1a1a1a;
+    font-weight: 600;
+    font-size: 1em;
+    cursor: pointer;
+  }
+
+  .mood-row {
+    display: flex;
+    gap: 0.5em;
+    overflow-x: auto;
+    padding-bottom: 0.3em;
+    margin-bottom: 1em;
+  }
+  .mood-pill {
+    flex: 0 0 auto;
+    padding: 0.5em 1em;
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    font-size: 0.9em;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mood-pill:active { background: var(--accent); }
+
+  .card {
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 1em;
+    margin-bottom: 1em;
+  }
+
+  #now-playing-title {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1.15em;
+    margin-bottom: 0.1em;
+  }
+  #now-playing-artist { color: var(--text-muted); font-size: 0.95em; }
+  #now-playing-empty { color: var(--text-muted); }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8em;
+    margin-top: 0.9em;
+  }
+  .ctrl-btn {
+    background: var(--cta);
+    border: none;
+    color: #1a1a1a;
+    width: 3em;
+    height: 3em;
+    border-radius: 50%;
+    font-size: 1.1em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ctrl-btn.secondary { background: var(--accent); color: var(--bg); width: 2.5em; height: 2.5em; }
+  #volume {
+    flex: 1;
+    accent-color: var(--cta);
+  }
+
+  .result-row, .queue-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.7em 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .result-row:last-child, .queue-row:last-child { border-bottom: none; }
+  .result-info .t { font-weight: 500; }
+  .result-info .a { color: var(--text-muted); font-size: 0.85em; }
+  .add-btn {
+    background: var(--cta);
+    border: none;
+    color: #1a1a1a;
+    padding: 0.4em 0.8em;
+    border-radius: 8px;
+    font-size: 0.85em;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
+  .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
 </style>
+</head>
+<body>
+<div class="wrap">
 
-<h2>🎵 Be the DJ</h2>
+  <header>
+    <span class="logo">Rider<span>Music</span></span>
+  </header>
 
-<div id="now-playing">Loading...</div>
-<div id="controls">
-  <button id="play-pause-btn">⏯</button>
-  <button id="skip-btn">⏭</button>
-  <input type="range" id="volume" min="0" max="100" value="50">
+  <h1>Be the <span class="hl">DJ</span> for your ride</h1>
+
+  <div class="search-row">
+    <input type="text" id="search-box" placeholder="Search songs, artists...">
+    <button id="search-btn">Go</button>
+  </div>
+
+  <div class="mood-row">
+    <button class="mood-pill" data-q="chill">Chill</button>
+    <button class="mood-pill" data-q="dance">Dance</button>
+    <button class="mood-pill" data-q="r&b">R&amp;B</button>
+    <button class="mood-pill" data-q="disco">Disco</button>
+    <button class="mood-pill" data-q="80s">80s</button>
+  </div>
+
+  <div id="search-results"></div>
+
+  <h3>Now Playing</h3>
+  <div class="card">
+    <div id="now-playing-title">Nothing yet</div>
+    <div id="now-playing-artist" class="empty-hint" style="display:none"></div>
+    <div id="now-playing-empty">Search above and add a song to get started</div>
+    <div class="controls" id="controls" style="display:none">
+      <button class="ctrl-btn" id="play-pause-btn">⏯</button>
+      <button class="ctrl-btn secondary" id="skip-btn">⏭</button>
+      <input type="range" id="volume" min="0" max="100" value="50">
+    </div>
+  </div>
+
+  <h3>Up Next</h3>
+  <div class="card" id="queue"></div>
+
 </div>
-
-<h3>Search</h3>
-<input type="text" id="search-box" placeholder="Artist or song...">
-<button id="search-btn">Search</button>
-<div id="search-results"></div>
-
-<h3>Up next</h3>
-<div id="queue"></div>
 
 <script>
 async function refreshPlayback() {
   const res = await fetch('/guest/playback');
   const data = await res.json();
-  const np = document.getElementById('now-playing');
+  const titleEl = document.getElementById('now-playing-title');
+  const artistEl = document.getElementById('now-playing-artist');
+  const emptyEl = document.getElementById('now-playing-empty');
+  const controls = document.getElementById('controls');
+
   if (data.now_playing) {
-    np.textContent = (data.is_playing ? '▶ ' : '⏸ ') + data.now_playing.title + ' — ' + data.now_playing.artist;
+    titleEl.textContent = (data.is_playing ? '▶ ' : '⏸ ') + data.now_playing.title;
+    artistEl.textContent = data.now_playing.artist;
+    artistEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+    controls.style.display = 'flex';
   } else {
-    np.textContent = 'Nothing playing yet — search and add a song!';
+    titleEl.textContent = 'Nothing yet';
+    artistEl.style.display = 'none';
+    emptyEl.style.display = 'block';
+    controls.style.display = 'none';
   }
   document.getElementById('volume').value = data.volume;
 }
@@ -152,26 +343,40 @@ async function refreshQueue() {
   const el = document.getElementById('queue');
   el.innerHTML = '';
   if (data.queue.length === 0) {
-    el.innerHTML = '<div>Queue is empty</div>';
+    el.innerHTML = '<div class="empty-hint">Queue is empty</div>';
+    return;
   }
-  for (const t of data.queue) {
+  data.queue.forEach((t, i) => {
     const div = document.createElement('div');
-    div.textContent = t.title + ' — ' + t.artist;
+    div.className = 'queue-row';
+    div.innerHTML = '<span><span class="queue-idx">' + (i + 1) + '</span>' +
+      t.title + ' — ' + t.artist + '</span>';
     el.appendChild(div);
-  }
+  });
 }
 
-document.getElementById('search-btn').addEventListener('click', async () => {
-  const q = document.getElementById('search-box').value.trim();
+function runSearch(q) {
+  document.getElementById('search-box').value = q;
+  doSearch(q);
+}
+
+async function doSearch(q) {
   if (!q) return;
   const res = await fetch('/guest/search?q=' + encodeURIComponent(q));
   const data = await res.json();
   const el = document.getElementById('search-results');
   el.innerHTML = '';
+  if (data.results.length === 0) {
+    el.innerHTML = '<div class="empty-hint">No matches — try another search</div>';
+    return;
+  }
   for (const t of data.results) {
     const div = document.createElement('div');
-    div.textContent = t.title + ' — ' + t.artist + ' (' + t.album + ') ';
+    div.className = 'result-row';
+    div.innerHTML = '<div class="result-info"><div class="t">' + t.title +
+      '</div><div class="a">' + t.artist + ' · ' + t.album + '</div></div>';
     const btn = document.createElement('button');
+    btn.className = 'add-btn';
     btn.textContent = '+ Add';
     btn.addEventListener('click', async () => {
       const r = await fetch('/guest/queue/add', {
@@ -190,6 +395,16 @@ document.getElementById('search-btn').addEventListener('click', async () => {
     div.appendChild(btn);
     el.appendChild(div);
   }
+}
+
+document.getElementById('search-btn').addEventListener('click', () => {
+  doSearch(document.getElementById('search-box').value.trim());
+});
+document.getElementById('search-box').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doSearch(e.target.value.trim());
+});
+document.querySelectorAll('.mood-pill').forEach(btn => {
+  btn.addEventListener('click', () => runSearch(btn.dataset.q));
 });
 
 document.getElementById('play-pause-btn').addEventListener('click', async () => {
@@ -226,6 +441,8 @@ setInterval(() => { refreshPlayback(); refreshQueue(); }, 3000);
 refreshPlayback();
 refreshQueue();
 </script>
+</body>
+</html>
 """
 
 

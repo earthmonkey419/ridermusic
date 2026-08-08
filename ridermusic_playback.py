@@ -31,11 +31,6 @@ def get_playback_state(db, session_id):
 
 
 def advance_to_next(db, session_id, mark_current_played=True):
-    """Marks the current queue item played (if any) and promotes the next
-    unplayed item to current, auto-playing it. Used by both guest skip and
-    the driver's natural-track-completion signal. Also used with
-    mark_current_played=False for auto-starting the very first track added
-    to an empty queue, where there's nothing to mark played yet."""
     state = get_playback_state(db, session_id)
 
     if mark_current_played and state["current_queue_id"]:
@@ -97,7 +92,7 @@ def register_playback_routes(app):
 
         db = get_db()
         session_id = g.session["session_id"]
-        get_playback_state(db, session_id)  # ensure row exists
+        get_playback_state(db, session_id)
 
         db.execute(
             "UPDATE playback_state SET is_playing = ?, updated_at = ? WHERE session_id = ?",
@@ -142,7 +137,7 @@ def register_playback_routes(app):
         ceiling = get_config_value(db, "volume_ceiling", 80)
         clamped = max(0, min(int(volume), ceiling))
 
-        get_playback_state(db, session_id)  # ensure row exists
+        get_playback_state(db, session_id)
         db.execute(
             "UPDATE playback_state SET volume = ?, updated_at = ? WHERE session_id = ?",
             (clamped, time.time(), session_id)
@@ -197,14 +192,71 @@ def register_player_state_route(app):
 
 PLAYER_PAGE = """
 <!doctype html>
-<title>RiderMusic Driver Player</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RiderMusic Driver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  body { font-family: sans-serif; text-align: center; padding-top: 3em; }
-  #status { font-size: 1.2em; margin-top: 1em; color: #666; }
+  :root {
+    --bg: #224248;
+    --panel: #325e6a;
+    --accent: #44a1a4;
+    --cta: #ff9a00;
+    --text: #eef6f6;
+    --text-muted: #9fc2c4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wrap { max-width: 440px; width: 100%; padding: 1.5em; text-align: center; }
+  .logo {
+    font-family: 'Sora', sans-serif;
+    font-weight: 800;
+    font-size: 1.1em;
+    color: var(--text-muted);
+    margin-bottom: 2em;
+  }
+  .logo span { color: var(--cta); }
+  #track {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1.4em;
+    margin-bottom: 0.2em;
+  }
+  #artist { color: var(--text-muted); margin-bottom: 1.5em; }
+  audio { width: 100%; margin-bottom: 1em; }
+  #status {
+    display: inline-block;
+    padding: 0.4em 1em;
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.9em;
+  }
+  #hint { color: var(--text-muted); font-size: 0.85em; margin-top: 1.5em; }
 </style>
-<h2 id="track">Nothing playing</h2>
-<audio id="player" controls></audio>
-<div id="status">Waiting for a session...</div>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Rider<span>Music</span> — Driver</div>
+  <div id="track">Nothing playing</div>
+  <div id="artist"></div>
+  <audio id="player" controls></audio>
+  <div id="status">Waiting for a session...</div>
+  <div id="hint">Riders control the music from their phones</div>
+</div>
 
 <script>
 let currentRatingKey = null;
@@ -214,17 +266,20 @@ async function poll() {
   const data = await res.json();
   const audio = document.getElementById('player');
   const track = document.getElementById('track');
+  const artist = document.getElementById('artist');
   const status = document.getElementById('status');
 
   if (!data.active || !data.now_playing) {
     track.textContent = 'Nothing playing';
-    status.textContent = data.active ? 'Session active, queue empty' : 'No active session';
+    artist.textContent = '';
+    status.textContent = data.active ? 'Session active — queue empty' : 'No active session';
     audio.pause();
     currentRatingKey = null;
     return;
   }
 
-  track.textContent = data.now_playing.title + ' — ' + data.now_playing.artist;
+  track.textContent = data.now_playing.title;
+  artist.textContent = data.now_playing.artist;
   status.textContent = data.is_playing ? 'Playing' : 'Paused';
   audio.volume = data.volume / 100;
 
@@ -247,6 +302,8 @@ document.getElementById('player').addEventListener('ended', async () => {
 setInterval(poll, 2000);
 poll();
 </script>
+</body>
+</html>
 """
 
 

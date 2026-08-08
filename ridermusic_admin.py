@@ -44,13 +44,87 @@ def require_admin_auth(f):
     return wrapper
 
 
+BASE_STYLE = """
+<style>
+  :root {
+    --bg: #224248;
+    --panel: #325e6a;
+    --accent: #44a1a4;
+    --cta: #ff9a00;
+    --text: #eef6f6;
+    --text-muted: #9fc2c4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 440px; margin: 0 auto; padding: 2em 1.25em; }
+  .logo {
+    font-family: 'Sora', sans-serif;
+    font-weight: 800;
+    font-size: 1.2em;
+    margin-bottom: 1.5em;
+  }
+  .logo span { color: var(--cta); }
+  h2 {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    margin-bottom: 1em;
+  }
+</style>
+"""
+
 LOGIN_FORM = """
 <!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic Admin</title>
-<form method="post">
-  <label>Password: <input type="password" name="password" autofocus></label>
-  <button type="submit">Log in</button>
-</form>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+""" + BASE_STYLE + """
+<style>
+  input[type=password] {
+    width: 100%;
+    padding: 0.85em 1em;
+    border-radius: 10px;
+    border: none;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 1em;
+    margin-bottom: 0.8em;
+  }
+  button {
+    width: 100%;
+    padding: 0.85em;
+    border-radius: 10px;
+    border: none;
+    background: var(--cta);
+    color: #1a1a1a;
+    font-weight: 600;
+    font-size: 1em;
+    cursor: pointer;
+  }
+  .error { color: #ff6b6b; margin-top: 0.8em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Rider<span>Music</span></div>
+  <h2>Admin Login</h2>
+  <form method="post">
+    <input type="password" name="password" placeholder="Password" autofocus>
+    <button type="submit">Log in</button>
+  </form>
+  __ERROR__
+</div>
+</body>
+</html>
 """
 
 
@@ -59,11 +133,11 @@ def register_admin_routes(app):
     @app.route("/admin/login", methods=["GET", "POST"])
     def admin_login():
         if request.method == "GET":
-            return LOGIN_FORM
+            return LOGIN_FORM.replace("__ERROR__", "")
 
         submitted = request.form.get("password", "")
         if not secrets.compare_digest(submitted, ADMIN_PASSWORD):
-            return LOGIN_FORM + "<p>Incorrect password.</p>", 401
+            return LOGIN_FORM.replace("__ERROR__", '<p class="error">Incorrect password.</p>'), 401
 
         db = get_db()
         token = create_admin_session(db)
@@ -120,22 +194,55 @@ def register_admin_routes(app):
 
 ADMIN_DASHBOARD_PAGE = """
 <!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+""" + BASE_STYLE + """
 <style>
-  body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 1em; }
-  #status { padding: 1em; background: #f2f2f2; border-radius: 8px; margin-bottom: 1em; }
-  #end-btn { font-size: 1.2em; padding: 0.6em 1.2em; background: #c0392b; color: white;
-             border: none; border-radius: 6px; cursor: pointer; }
-  #end-btn:disabled { background: #999; }
-  #log div { padding: 0.4em; border-bottom: 1px solid #ddd; font-size: 0.9em; color: #555; }
+  .card {
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 1.2em;
+    margin-bottom: 1.2em;
+  }
+  .stat { font-size: 1.05em; margin-bottom: 0.3em; }
+  .stat .label { color: var(--text-muted); }
+  #end-btn {
+    width: 100%;
+    padding: 0.9em;
+    font-size: 1.05em;
+    font-weight: 700;
+    font-family: 'Sora', sans-serif;
+    background: #c0392b;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  #end-btn:disabled { background: var(--panel); color: var(--text-muted); }
+  #log .row {
+    padding: 0.5em 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.88em;
+    color: var(--text-muted);
+  }
+  #log .row:last-child { border-bottom: none; }
 </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Rider<span>Music</span> Admin</div>
 
-<h2>RiderMusic Admin</h2>
-<div id="status">Loading...</div>
-<button id="end-btn">End Session</button>
+  <div class="card" id="status">Loading...</div>
+  <button id="end-btn">End Session</button>
 
-<h3>Recent activity</h3>
-<div id="log"></div>
+  <h2 style="margin-top:1.5em; font-size:1em; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);">Recent activity</h2>
+  <div class="card" id="log"></div>
+</div>
 
 <script>
 async function refresh() {
@@ -145,22 +252,27 @@ async function refresh() {
   const btn = document.getElementById('end-btn');
 
   if (!data.active) {
-    statusEl.textContent = 'No active ride right now.';
+    statusEl.innerHTML = '<span class="label">No active ride right now.</span>';
     btn.disabled = true;
     document.getElementById('log').innerHTML = '';
     return;
   }
 
   const mins = Math.floor(data.seconds_remaining / 60);
-  statusEl.innerHTML = 'Ride in progress<br>' +
-    data.device_count + ' device(s) connected<br>' +
-    mins + ' min remaining';
+  statusEl.innerHTML =
+    '<div class="stat"><span class="label">Status:</span> Ride in progress</div>' +
+    '<div class="stat"><span class="label">Devices:</span> ' + data.device_count + '</div>' +
+    '<div class="stat"><span class="label">Time left:</span> ' + mins + ' min</div>';
   btn.disabled = false;
 
   const logEl = document.getElementById('log');
   logEl.innerHTML = '';
+  if (data.recent_actions.length === 0) {
+    logEl.innerHTML = '<div class="row">No activity yet</div>';
+  }
   for (const a of data.recent_actions) {
     const div = document.createElement('div');
+    div.className = 'row';
     const time = new Date(a.ts * 1000).toLocaleTimeString();
     div.textContent = time + ' — ' + a.type + (a.detail ? ': ' + a.detail : '');
     logEl.appendChild(div);
@@ -176,6 +288,8 @@ document.getElementById('end-btn').addEventListener('click', async () => {
 setInterval(refresh, 3000);
 refresh();
 </script>
+</body>
+</html>
 """
 
 
