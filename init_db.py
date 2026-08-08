@@ -25,6 +25,17 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     expires_at  REAL
 );
 
+CREATE TABLE IF NOT EXISTS queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT,
+    rating_key  INTEGER,
+    title       TEXT,
+    artist      TEXT,
+    duration_ms INTEGER,
+    added_at    REAL,
+    played      INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS config (
     key    TEXT PRIMARY KEY,
     value  TEXT
