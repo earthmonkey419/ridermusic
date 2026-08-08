@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+config.py
+ridermusic.db
+*.db
+cookies.txt
+admin_cookies.txt
+guest_cookies.txt
