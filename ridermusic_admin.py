@@ -67,7 +67,7 @@ def register_admin_routes(app):
 
         db = get_db()
         token = create_admin_session(db)
-        resp = make_response(redirect("/admin/status"))
+        resp = make_response(redirect("/admin/dashboard"))
         resp.set_cookie(
             ADMIN_COOKIE_NAME, token,
             httponly=True, secure=COOKIE_SECURE, samesite="Lax",
@@ -116,3 +116,71 @@ def register_admin_routes(app):
         )
         db.commit()
         return jsonify({"ended": True, "session_id": active["session_id"]})
+
+
+ADMIN_DASHBOARD_PAGE = """
+<!doctype html>
+<title>RiderMusic Admin</title>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 1em; }
+  #status { padding: 1em; background: #f2f2f2; border-radius: 8px; margin-bottom: 1em; }
+  #end-btn { font-size: 1.2em; padding: 0.6em 1.2em; background: #c0392b; color: white;
+             border: none; border-radius: 6px; cursor: pointer; }
+  #end-btn:disabled { background: #999; }
+  #log div { padding: 0.4em; border-bottom: 1px solid #ddd; font-size: 0.9em; color: #555; }
+</style>
+
+<h2>RiderMusic Admin</h2>
+<div id="status">Loading...</div>
+<button id="end-btn">End Session</button>
+
+<h3>Recent activity</h3>
+<div id="log"></div>
+
+<script>
+async function refresh() {
+  const res = await fetch('/admin/status');
+  const data = await res.json();
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('end-btn');
+
+  if (!data.active) {
+    statusEl.textContent = 'No active ride right now.';
+    btn.disabled = true;
+    document.getElementById('log').innerHTML = '';
+    return;
+  }
+
+  const mins = Math.floor(data.seconds_remaining / 60);
+  statusEl.innerHTML = 'Ride in progress<br>' +
+    data.device_count + ' device(s) connected<br>' +
+    mins + ' min remaining';
+  btn.disabled = false;
+
+  const logEl = document.getElementById('log');
+  logEl.innerHTML = '';
+  for (const a of data.recent_actions) {
+    const div = document.createElement('div');
+    const time = new Date(a.ts * 1000).toLocaleTimeString();
+    div.textContent = time + ' — ' + a.type + (a.detail ? ': ' + a.detail : '');
+    logEl.appendChild(div);
+  }
+}
+
+document.getElementById('end-btn').addEventListener('click', async () => {
+  if (!confirm('End the current ride? Guests will lose access immediately.')) return;
+  await fetch('/admin/end_session', { method: 'POST' });
+  refresh();
+});
+
+setInterval(refresh, 3000);
+refresh();
+</script>
+"""
+
+
+def register_admin_dashboard_route(app):
+    @app.route("/admin/dashboard")
+    @require_admin_auth
+    def admin_dashboard():
+        return ADMIN_DASHBOARD_PAGE
