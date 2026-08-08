@@ -4,7 +4,7 @@ import time
 from functools import wraps
 from flask import request, redirect, make_response, jsonify, g
 
-from config import DB_PATH, SESSION_TIMEOUT_SECONDS
+from config import DB_PATH, SESSION_TIMEOUT_SECONDS, COOKIE_SECURE
 
 COOKIE_NAME = "rm_session"
 
@@ -96,7 +96,7 @@ def register_join_route(app):
         resp = make_response(redirect("/guest"))
         resp.set_cookie(
             COOKIE_NAME, token,
-            httponly=True, secure=True, samesite="Lax",
+            httponly=True, secure=COOKIE_SECURE, samesite="Lax",
             max_age=SESSION_TIMEOUT_SECONDS
         )
         return resp

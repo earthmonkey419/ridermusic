@@ -161,3 +161,97 @@ def register_playback_routes(app):
 
         next_id = advance_to_next(db, active["session_id"], mark_current_played=True)
         return jsonify({"advanced": True, "next_queue_id": next_id})
+
+
+def register_player_state_route(app):
+    @app.route("/player/state")
+    @require_admin_auth
+    def player_state():
+        db = get_db()
+        active = get_active_session(db)
+        if not active:
+            return jsonify({"active": False})
+
+        state = get_playback_state(db, active["session_id"])
+        now_playing = None
+        if state["current_queue_id"]:
+            row = db.execute(
+                "SELECT rating_key, title, artist, duration_ms FROM queue WHERE id = ?",
+                (state["current_queue_id"],)
+            ).fetchone()
+            if row:
+                now_playing = {
+                    "rating_key": row["rating_key"],
+                    "title": row["title"],
+                    "artist": row["artist"],
+                    "duration_ms": row["duration_ms"],
+                }
+
+        return jsonify({
+            "active": True,
+            "is_playing": bool(state["is_playing"]),
+            "volume": state["volume"],
+            "now_playing": now_playing,
+        })
+
+
+PLAYER_PAGE = """
+<!doctype html>
+<title>RiderMusic Driver Player</title>
+<style>
+  body { font-family: sans-serif; text-align: center; padding-top: 3em; }
+  #status { font-size: 1.2em; margin-top: 1em; color: #666; }
+</style>
+<h2 id="track">Nothing playing</h2>
+<audio id="player" controls></audio>
+<div id="status">Waiting for a session...</div>
+
+<script>
+let currentRatingKey = null;
+
+async function poll() {
+  const res = await fetch('/player/state');
+  const data = await res.json();
+  const audio = document.getElementById('player');
+  const track = document.getElementById('track');
+  const status = document.getElementById('status');
+
+  if (!data.active || !data.now_playing) {
+    track.textContent = 'Nothing playing';
+    status.textContent = data.active ? 'Session active, queue empty' : 'No active session';
+    audio.pause();
+    currentRatingKey = null;
+    return;
+  }
+
+  track.textContent = data.now_playing.title + ' — ' + data.now_playing.artist;
+  status.textContent = data.is_playing ? 'Playing' : 'Paused';
+  audio.volume = data.volume / 100;
+
+  if (data.now_playing.rating_key !== currentRatingKey) {
+    currentRatingKey = data.now_playing.rating_key;
+    audio.src = '/player/stream/' + currentRatingKey;
+  }
+
+  if (data.is_playing && audio.paused) {
+    audio.play().catch(() => {});
+  } else if (!data.is_playing && !audio.paused) {
+    audio.pause();
+  }
+}
+
+document.getElementById('player').addEventListener('ended', async () => {
+  await fetch('/player/next', { method: 'POST' });
+});
+
+setInterval(poll, 2000);
+poll();
+</script>
+"""
+
+
+def register_player_page_route(app):
+    @app.route("/player")
+    @require_admin_auth
+    def player_page():
+        return PLAYER_PAGE

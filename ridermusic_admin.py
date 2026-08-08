@@ -3,7 +3,7 @@ import time
 from functools import wraps
 from flask import request, redirect, make_response, jsonify, g
 
-from config import ADMIN_PASSWORD, ADMIN_SESSION_DAYS
+from config import ADMIN_PASSWORD, ADMIN_SESSION_DAYS, COOKIE_SECURE
 from ridermusic_sessions import get_db, get_active_session
 
 ADMIN_COOKIE_NAME = "rm_admin"
@@ -70,7 +70,7 @@ def register_admin_routes(app):
         resp = make_response(redirect("/admin/status"))
         resp.set_cookie(
             ADMIN_COOKIE_NAME, token,
-            httponly=True, secure=True, samesite="Lax",
+            httponly=True, secure=COOKIE_SECURE, samesite="Lax",
             max_age=ADMIN_SESSION_SECONDS
         )
         return resp
