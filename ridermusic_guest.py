@@ -170,7 +170,7 @@ document.getElementById('search-btn').addEventListener('click', async () => {
   el.innerHTML = '';
   for (const t of data.results) {
     const div = document.createElement('div');
-    div.textContent = t.title + ' — ' + t.artist + ' ';
+    div.textContent = t.title + ' — ' + t.artist + ' (' + t.album + ') ';
     const btn = document.createElement('button');
     btn.textContent = '+ Add';
     btn.addEventListener('click', async () => {
