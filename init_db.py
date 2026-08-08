@@ -19,6 +19,12 @@ CREATE TABLE IF NOT EXISTS session_actions (
     ts          REAL
 );
 
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token       TEXT PRIMARY KEY,
+    created_at  REAL,
+    expires_at  REAL
+);
+
 CREATE TABLE IF NOT EXISTS config (
     key    TEXT PRIMARY KEY,
     value  TEXT
