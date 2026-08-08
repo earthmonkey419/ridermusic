@@ -69,7 +69,7 @@ BASE_STYLE = """
     font-size: 1.2em;
     margin-bottom: 1.5em;
   }
-  .logo span { color: var(--cta); }
+  .logo .accent { color: var(--cta); }
   h2 {
     font-family: 'Sora', sans-serif;
     font-weight: 700;
@@ -143,7 +143,7 @@ LOGIN_FORM = """
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Rider<span>Music</span> for Plex</div>
+  <div class="logo">Rider<span class="accent">Music</span> for Plex</div>
   <h2>Admin Login</h2>
   <form method="post">
     <input type="password" name="password" placeholder="Password" autofocus>
@@ -282,7 +282,7 @@ ADMIN_DASHBOARD_PAGE = """
 <body>
 <div class="wrap">
   <div class="logo" style="display:flex; align-items:center; justify-content:space-between;">
-    <span>Rider<span>Music</span> for Plex — Driver</span>
+    <span>Rider<span class="accent">Music</span> for Plex — Driver</span>
     <a href="/admin/guide" style="color:var(--accent); font-size:0.6em; border:1px solid var(--accent); border-radius:50%; width:1.6em; height:1.6em; display:flex; align-items:center; justify-content:center; text-decoration:none; flex-shrink:0;">?</a>
   </div>
 
@@ -412,7 +412,7 @@ GUIDE_PAGE = """
 <body>
 <div class="wrap">
   <a class="back" href="/admin/dashboard">&larr; Back to dashboard</a>
-  <div class="logo">Rider<span>Music</span> for Plex — Guide</div>
+  <div class="logo">Rider<span class="accent">Music</span> for Plex — Guide</div>
 
   <h3>The QR code</h3>
   <p>The QR code always points at the same <code>/join</code> link — print
