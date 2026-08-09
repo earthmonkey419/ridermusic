@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at     REAL,
     expires_at     REAL,
     ended_by_admin INTEGER DEFAULT 0,
-    device_count   INTEGER DEFAULT 0
+    device_count   INTEGER DEFAULT 0,
+    rejoin_code    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS session_actions (
@@ -57,3 +58,12 @@ INSERT OR IGNORE INTO config (key, value) VALUES ('skip_rate_limit_seconds', '20
 conn.commit()
 conn.close()
 print("ridermusic.db initialized")
+
+conn2 = sqlite3.connect(DB_PATH)
+try:
+    conn2.execute("ALTER TABLE sessions ADD COLUMN rejoin_code TEXT")
+    conn2.commit()
+    print("added rejoin_code column")
+except sqlite3.OperationalError as e:
+    print(f"rejoin_code column already exists or other issue: {e}")
+conn2.close()

@@ -200,6 +200,7 @@ def register_admin_routes(app):
             "active": True,
             "session_id": active["session_id"],
             "device_count": active["device_count"],
+            "rejoin_code": active["rejoin_code"],
             "seconds_remaining": int(remaining),
             "recent_actions": [
                 {"type": r["action_type"], "detail": r["detail"], "ts": r["ts"]}
@@ -364,7 +365,8 @@ async function pollStatus() {
   statusEl.innerHTML =
     '<div class="stat"><span class="label">Status:</span> Ride in progress</div>' +
     '<div class="stat"><span class="label">Devices:</span> ' + data.device_count + '</div>' +
-    '<div class="stat"><span class="label">Time left:</span> ' + mins + ' min</div>';
+    '<div class="stat"><span class="label">Time left:</span> ' + mins + ' min</div>' +
+    '<div class="stat"><span class="label">Rejoin code:</span> <strong style="letter-spacing:0.2em;">' + data.rejoin_code + '</strong></div>';
   btn.disabled = false;
 
   const logEl = document.getElementById('log');
@@ -430,11 +432,14 @@ GUIDE_PAGE = """
 
   <h3>How a ride works</h3>
   <p>The first passenger to scan starts a session automatically &mdash;
-  you don't have to do anything. If a second phone scans during an
-  active ride, it joins that same session instead of starting a
-  competing one. Sessions expire automatically after the configured
-  timeout. Your only necessary action is the <strong>End Session</strong>
-  button on the dashboard, and only if a passenger is dropped off early.</p>
+  you don't have to do anything, and no code is needed. If a second
+  phone scans while a ride is already active, they'll be asked for a
+  4-digit code &mdash; shown right on this dashboard &mdash; before
+  they can join. Just read it to them out loud. This keeps a stranger
+  with an old link from joining a ride already in progress. Sessions
+  expire automatically after the configured timeout. Your only
+  necessary action is the <strong>End Session</strong> button on the
+  dashboard, and only if a passenger is dropped off early.</p>
 
   <h3>The driver player</h3>
   <p>This dashboard page is also the player &mdash; pair your phone to
