@@ -205,6 +205,8 @@ GUEST_PAGE = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic for Plex</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -371,6 +373,23 @@ GUEST_PAGE = """
   .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
   .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
 
+  .spinner {
+    display: flex;
+    justify-content: center;
+    padding: 1.5em 0;
+  }
+  .spinner div {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: var(--cta);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
   #footer {
     margin-top: 2em;
     padding-top: 1em;
@@ -508,14 +527,21 @@ function renderResults(results) {
   }
 }
 
+function showSpinner() {
+  document.getElementById('search-results').innerHTML =
+    '<div class="spinner"><div></div></div>';
+}
+
 async function doSearch(q) {
   if (!q) return;
+  showSpinner();
   const res = await fetch('/guest/search?q=' + encodeURIComponent(q));
   const data = await res.json();
   renderResults(data.results);
 }
 
 async function doMood(bucket) {
+  showSpinner();
   const res = await fetch('/guest/mood?bucket=' + encodeURIComponent(bucket));
   const data = await res.json();
   renderResults(data.results);

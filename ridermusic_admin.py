@@ -113,6 +113,8 @@ LOGIN_FORM = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic for Plex Admin</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 """ + BASE_STYLE + """
@@ -228,6 +230,8 @@ ADMIN_DASHBOARD_PAGE = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic for Plex — Driver</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 """ + BASE_STYLE + """
@@ -400,6 +404,8 @@ GUIDE_PAGE = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RiderMusic for Plex — Guide</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 """ + BASE_STYLE + """

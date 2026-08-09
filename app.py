@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, redirect
 
 from ridermusic_sessions import register_join_route, teardown_db
 from ridermusic_admin import register_admin_routes, register_admin_dashboard_route, register_guide_route
@@ -20,6 +20,12 @@ register_guest_page_route(app)
 register_playback_routes(app)
 register_player_state_route(app)
 register_player_page_route(app)
+
+
+
+@app.route("/")
+def index():
+    return redirect("/join")
 
 
 if __name__ == "__main__":
