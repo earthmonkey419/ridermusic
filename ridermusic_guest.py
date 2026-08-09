@@ -29,6 +29,14 @@ MOOD_BUCKETS = {
     "disco": ["disco"],
     "80s": ["80s"],
     "country": ["country", "bluegrass", "americana"],
+    "hip hop": ["hip hop", "hip-hop", "rap"],
+    "classical": ["classical", "orchestral", "symphony", "baroque"],
+    "electronic": ["electronic", "edm", "synth", "techno", "house"],
+    "rock": ["rock"],
+    "pop": ["pop"],
+    "jazz": ["jazz"],
+    "reggae": ["reggae", "ska", "dub"],
+    "latin": ["latin", "salsa", "bossa", "cumbia"],
 }
 
 
@@ -289,13 +297,11 @@ GUEST_PAGE = """
 
   .mood-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5em;
-    overflow-x: auto;
-    padding-bottom: 0.3em;
     margin-bottom: 1em;
   }
   .mood-pill {
-    flex: 0 0 auto;
     padding: 0.5em 1em;
     border-radius: 999px;
     background: var(--panel);
@@ -423,6 +429,14 @@ GUEST_PAGE = """
     <button class="mood-pill" data-bucket="disco">Disco</button>
     <button class="mood-pill" data-bucket="80s">80s</button>
     <button class="mood-pill" data-bucket="country">Country</button>
+    <button class="mood-pill" data-bucket="hip hop">Hip Hop</button>
+    <button class="mood-pill" data-bucket="classical">Classical</button>
+    <button class="mood-pill" data-bucket="electronic">Electronic</button>
+    <button class="mood-pill" data-bucket="rock">Rock</button>
+    <button class="mood-pill" data-bucket="pop">Pop</button>
+    <button class="mood-pill" data-bucket="jazz">Jazz</button>
+    <button class="mood-pill" data-bucket="reggae">Reggae</button>
+    <button class="mood-pill" data-bucket="latin">Latin</button>
   </div>
 
   <div id="search-results"></div>
