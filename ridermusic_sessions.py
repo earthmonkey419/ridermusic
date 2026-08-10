@@ -33,23 +33,23 @@ def get_active_session(db):
 
 
 def _generate_rejoin_code():
-    # 4-digit numeric: easy for a driver to say out loud, easy for a
-    # passenger to type on a phone keypad. Not high-security -- it's
-    # a "did the driver actually tell you this" check, not encryption.
     return f"{secrets.randbelow(10000):04d}"
 
 
 def create_session(db):
+    """Called by the driver's 'Start Ride' action, not by a guest join.
+    device_count starts at 0 -- the driver starting the ride isn't a
+    guest device; each real guest join increments it via attach_device."""
     session_id = secrets.token_urlsafe(32)
     now = time.time()
     code = _generate_rejoin_code()
     db.execute(
         "INSERT INTO sessions (session_id, started_at, expires_at, "
-        "ended_by_admin, device_count, rejoin_code) VALUES (?, ?, ?, 0, 1, ?)",
+        "ended_by_admin, device_count, rejoin_code) VALUES (?, ?, ?, 0, 0, ?)",
         (session_id, now, now + SESSION_TIMEOUT_SECONDS, code)
     )
     db.commit()
-    return session_id
+    return session_id, code
 
 
 def attach_device(db, session_id):
@@ -80,16 +80,7 @@ def validate_session(db, token):
     ).fetchone()
 
 
-REJOIN_FORM = """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+BASE_JOIN_STYLE = """
 <style>
   :root {
     --bg: #224248;
@@ -106,13 +97,16 @@ REJOIN_FORM = """
     color: var(--text);
     font-family: 'Inter', sans-serif;
     min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .wrap { max-width: 420px; margin: 0 auto; padding: 2em 1.25em; text-align: center; }
+  .wrap { max-width: 380px; width: 100%; padding: 2em 1.25em; text-align: center; }
   .logo {
     font-family: 'Sora', sans-serif;
     font-weight: 800;
-    font-size: 1.2em;
-    margin-bottom: 1.5em;
+    font-size: 1.4em;
+    margin-bottom: 0.3em;
   }
   .logo span { color: var(--cta); }
   h2 {
@@ -120,7 +114,7 @@ REJOIN_FORM = """
     font-weight: 700;
     margin-bottom: 0.5em;
   }
-  p { color: var(--text-muted); line-height: 1.5; margin-bottom: 1.5em; }
+  p { color: var(--text-muted); margin-bottom: 2em; line-height: 1.5; }
   input[type=text] {
     width: 100%;
     padding: 0.9em;
@@ -135,23 +129,59 @@ REJOIN_FORM = """
   }
   button {
     width: 100%;
-    padding: 0.9em;
-    border-radius: 10px;
+    padding: 1em;
+    border-radius: 12px;
     border: none;
     background: var(--cta);
     color: #1a1a1a;
-    font-weight: 600;
-    font-size: 1em;
+    font-weight: 700;
+    font-family: 'Sora', sans-serif;
+    font-size: 1.1em;
     cursor: pointer;
   }
   .error { color: #ff6b6b; margin-top: 1em; }
 </style>
+"""
+
+NO_RIDE_PAGE = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RiderMusic for Plex</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+""" + BASE_JOIN_STYLE + """
 </head>
 <body>
 <div class="wrap">
   <div class="logo">Rider<span>Music</span></div>
-  <h2>A ride is already in progress</h2>
-  <p>Ask your driver for the 4-digit code to join.</p>
+  <h2>No ride in progress</h2>
+  <p>Ask your driver to start the ride, then try scanning again.</p>
+</div>
+</body>
+</html>
+"""
+
+REJOIN_FORM = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RiderMusic for Plex</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+""" + BASE_JOIN_STYLE + """
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Rider<span>Music</span></div>
+  <h2>Join the ride</h2>
+  <p>Ask your driver for the 4-digit code.</p>
   <form method="post">
     <input type="text" name="code" inputmode="numeric" pattern="[0-9]*"
            maxlength="4" autofocus placeholder="0000">
@@ -185,24 +215,13 @@ def register_join_route(app):
         session_row = validate_session(db, existing_token)
 
         if session_row:
-            # Already has a valid cookie for the currently active session.
             return make_response(redirect("/guest"))
 
         active = get_active_session(db)
 
         if not active:
-            # Nothing in progress -- starting fresh needs no code at all.
-            token = create_session(db)
-            log_action(db, token, "join")
-            resp = make_response(redirect("/guest"))
-            resp.set_cookie(
-                COOKIE_NAME, token,
-                httponly=True, secure=COOKIE_SECURE, samesite="Lax",
-                max_age=SESSION_TIMEOUT_SECONDS
-            )
-            return resp
+            return NO_RIDE_PAGE
 
-        # A session is already active -- joining it requires the code.
         if request.method == "GET":
             return REJOIN_FORM.replace("__ERROR__", "")
 

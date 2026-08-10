@@ -29,10 +29,10 @@ Guest phone (portal)  ->  RiderMusic backend  ->  Driver's phone (dashboard)  ->
   Chill, Dance, R&B, Disco, 80s, Country, Hip Hop, Classical,
   Electronic, Rock, Pop, Jazz, Reggae, Latin), add to queue,
   play/pause/skip, volume (clamped to a driver-set ceiling)
-- **Rejoin codes:** the first passenger to scan joins instantly, no
-  code needed. If a ride is already active, joining requires a
-  4-digit code shown on the driver's dashboard — stops a stranger
-  with an old link from attaching to a ride already in progress
+- **Join codes:** the driver taps "Start Ride" on the dashboard,
+  which shows a 4-digit code. Every passenger — including the first
+  — enters that code to join. Stops a stranger with an old link from
+  attaching to a ride, and keeps behavior uniform and predictable
 - **Driver dashboard:** one page — now-playing audio player, session
   status, End Session button, and recent activity log all together.
   Streams audio directly from Plex, no Plexamp involved
@@ -41,8 +41,9 @@ Guest phone (portal)  ->  RiderMusic backend  ->  Driver's phone (dashboard)  ->
 - **Printable sign:** the guide links to a QR sign generator
   (`/admin/sign`) — a print-ready card with a live QR code pointing
   at your own instance, generated server-side, no external tools
-- **Sessions:** passive by default — first scan starts a session,
-  it auto-expires, driver only needs to act to end one early
+- **Sessions:** driver-initiated — tap "Start Ride" to begin, ride
+  auto-expires after the configured timeout, driver taps
+  "End Session" to cut it short if needed
 
 ## Requirements
 
@@ -143,8 +144,11 @@ over real HTTPS.
 3. As the driver: log in at `/admin/login`, then stay on
    `/admin/dashboard` — that's both your session control panel and
    the audio player, pair it to your car stereo (Bluetooth or aux)
-4. Tap the `?` on the dashboard anytime for a quick in-app guide
-5. Use **End Session** on the dashboard to cut a ride short if needed
+4. Tap **Start Ride** to begin — this shows a 4-digit code. Read it
+   to each passenger as they get in; they enter it at `/join` to
+   connect
+5. Tap the `?` on the dashboard anytime for a quick in-app guide
+6. Use **End Session** on the dashboard to cut a ride short if needed
 
 ## Known limitations (current)
 
@@ -153,6 +157,13 @@ over real HTTPS.
   of Plex's fuzzy hub search, and mood buckets match real genre tags —
   but a library with thin or missing genre data will get thin results,
   same as any search built on top of it.
+- **Guest join may not work in all browsers.** Confirmed working on
+  Safari and Chrome for iOS; at least one other in-app browser (an
+  embedded browser inside another app, not a standalone browser) has
+  failed to persist the join cookie in testing. Root cause not yet
+  identified — server-side logic has been independently verified
+  correct via direct testing, so this appears to be a client-side
+  cookie-handling quirk in that specific browser rather than an app bug.
 - **Single shared admin password** — no per-user accounts.
 - **Driver dashboard reliability while backgrounded** (phone running
   CarPlay, screen off, etc.) hasn't been tested in a real moving car yet.

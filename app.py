@@ -28,5 +28,17 @@ def index():
     return redirect("/join")
 
 
+
+@app.after_request
+def add_no_cache_headers(response):
+    # Nothing in RiderMusic should ever be cached by a proxy (Cloudflare
+    # or otherwise) -- every page here is session-specific. A cached
+    # copy of /guest or /join served to a different visitor would be a
+    # real, serious bug, not just a staleness annoyance.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=6869)

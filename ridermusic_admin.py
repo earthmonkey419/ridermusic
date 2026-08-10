@@ -4,7 +4,7 @@ from functools import wraps
 from flask import request, redirect, make_response, jsonify, g
 
 from config import ADMIN_PASSWORD, ADMIN_SESSION_DAYS, COOKIE_SECURE
-from ridermusic_sessions import get_db, get_active_session
+from ridermusic_sessions import get_db, get_active_session, create_session, log_action
 
 ADMIN_COOKIE_NAME = "rm_admin"
 ADMIN_SESSION_SECONDS = ADMIN_SESSION_DAYS * 24 * 60 * 60
@@ -223,6 +223,19 @@ def register_admin_routes(app):
         db.commit()
         return jsonify({"ended": True, "session_id": active["session_id"]})
 
+    @app.route("/admin/start_ride", methods=["POST"])
+    @require_admin_auth
+    def admin_start_ride():
+        db = get_db()
+        existing = get_active_session(db)
+        if existing:
+            return jsonify({"started": False, "reason": "already_active",
+                             "rejoin_code": existing["rejoin_code"]})
+
+        session_id, code = create_session(db)
+        log_action(db, session_id, "ride_started")
+        return jsonify({"started": True, "rejoin_code": code})
+
 
 ADMIN_DASHBOARD_PAGE = """
 <!doctype html>
@@ -299,6 +312,7 @@ ADMIN_DASHBOARD_PAGE = """
   </div>
 
   <div class="card" id="status">Loading...</div>
+  <button id="start-btn" style="display:none;">Start Ride</button>
   <button id="end-btn">End Session</button>
 
   <h3>Recent activity</h3>
@@ -352,22 +366,24 @@ async function pollStatus() {
   const res = await fetch('/admin/status');
   const data = await res.json();
   const statusEl = document.getElementById('status');
-  const btn = document.getElementById('end-btn');
-
+  const endBtn = document.getElementById('end-btn');
+  const startBtn = document.getElementById('start-btn');
   if (!data.active) {
     statusEl.innerHTML = '<span class="label">No active ride right now.</span>';
-    btn.disabled = true;
+    endBtn.style.display = 'none';
+    startBtn.style.display = 'block';
     document.getElementById('log').innerHTML = '';
     return;
   }
-
+  startBtn.style.display = 'none';
+  endBtn.style.display = 'block';
   const mins = Math.floor(data.seconds_remaining / 60);
   statusEl.innerHTML =
     '<div class="stat"><span class="label">Status:</span> Ride in progress</div>' +
     '<div class="stat"><span class="label">Devices:</span> ' + data.device_count + '</div>' +
     '<div class="stat"><span class="label">Time left:</span> ' + mins + ' min</div>' +
-    '<div class="stat"><span class="label">Rejoin code:</span> <strong style="letter-spacing:0.2em;">' + data.rejoin_code + '</strong></div>';
-  btn.disabled = false;
+    '<div class="stat"><span class="label">Code for riders:</span> <strong style="letter-spacing:0.2em; font-size:1.3em;">' + data.rejoin_code + '</strong></div>';
+  endBtn.disabled = false;
 
   const logEl = document.getElementById('log');
   logEl.innerHTML = '';
@@ -382,6 +398,11 @@ async function pollStatus() {
     logEl.appendChild(div);
   }
 }
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  await fetch('/admin/start_ride', { method: 'POST' });
+  pollStatus();
+});
 
 document.getElementById('end-btn').addEventListener('click', async () => {
   if (!confirm('End the current ride? Guests will lose access immediately.')) return;

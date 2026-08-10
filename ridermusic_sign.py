@@ -122,14 +122,21 @@ SIGN_PAGE = """
   }
 
   @media print {
-    body * { visibility: hidden; }
-    .sign-card, .sign-card * { visibility: visible; }
+    html, body {
+      background: #ffffff !important;
+      margin: 0;
+      padding: 0;
+    }
+    .wrap > *:not(.sign-card) {
+      display: none !important;
+    }
+    .wrap {
+      padding: 0;
+      max-width: none;
+    }
     .sign-card {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 5in;
       box-shadow: none;
+      margin: 0 auto;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
