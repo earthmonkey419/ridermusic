@@ -112,7 +112,7 @@ LOGIN_FORM = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex Admin</title>
+<title>RiderMusic Jukebox for Plex Admin</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -145,7 +145,7 @@ LOGIN_FORM = """
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Rider<span class="accent">Music</span> for Plex</div>
+  <div class="logo">Rider<span class="accent">Music</span> Jukebox for Plex</div>
   <h2>Admin Login</h2>
   <form method="post">
     <input type="password" name="password" placeholder="Password" autofocus>
@@ -243,7 +243,7 @@ ADMIN_DASHBOARD_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex — Driver</title>
+<title>RiderMusic Jukebox for Plex — Driver</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -300,7 +300,7 @@ ADMIN_DASHBOARD_PAGE = """
 <body>
 <div class="wrap">
   <div class="logo" style="display:flex; align-items:center; justify-content:space-between;">
-    <span>Rider<span class="accent">Music</span> for Plex — Driver</span>
+    <span>Rider<span class="accent">Music</span> Jukebox for Plex — Driver</span>
     <a href="/admin/guide" style="color:var(--accent); font-size:0.6em; border:1px solid var(--accent); border-radius:50%; width:1.6em; height:1.6em; display:flex; align-items:center; justify-content:center; text-decoration:none; flex-shrink:0;">?</a>
   </div>
 
@@ -426,7 +426,7 @@ GUIDE_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex — Guide</title>
+<title>RiderMusic Jukebox for Plex — Guide</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -441,7 +441,7 @@ GUIDE_PAGE = """
 <body>
 <div class="wrap">
   <a class="back" href="/admin/dashboard">&larr; Back to dashboard</a>
-  <div class="logo">Rider<span class="accent">Music</span> for Plex — Guide</div>
+  <div class="logo">Rider<span class="accent">Music</span> Jukebox for Plex — Guide</div>
 
   <h3><a href="/admin/sign">Print a QR sign for your car &rarr;</a></h3>
 
@@ -470,11 +470,11 @@ GUIDE_PAGE = """
   <h3>Changing settings</h3>
   <p>Admin password, volume ceiling, session timeout, and Plex
   connection details all live in <code>config.py</code> on the server
-  running RiderMusic &mdash; not in this UI yet. Changes require editing
+  running RiderMusic Jukebox for Plex &mdash; not in this UI yet. Changes require editing
   that file and restarting the app.</p>
 
   <h3>Full setup &amp; deployment</h3>
-  <p>For installing RiderMusic itself (Docker or manual Python setup,
+  <p>For installing RiderMusic Jukebox for Plex itself (Docker or manual Python setup,
   exposing it to the internet, getting a Plex token, etc.), see the
   <a href="https://github.com/earthmonkey419/ridermusic#readme">full README on GitHub</a>.</p>
 

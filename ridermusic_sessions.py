@@ -149,7 +149,7 @@ NO_RIDE_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex</title>
+<title>RiderMusic Jukebox for Plex</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -157,8 +157,8 @@ NO_RIDE_PAGE = """
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Rider<span>Music</span></div>
-  <h2>No ride in progress</h2>
+  <div class="logo">Rider<span>Music</span> Jukebox</div>
+  <h2>No playlist in progress</h2>
   <p>Ask your driver to start the ride, then try scanning again.</p>
 </div>
 </body>
@@ -171,7 +171,7 @@ REJOIN_FORM = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex</title>
+<title>RiderMusic Jukebox for Plex</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -179,7 +179,7 @@ REJOIN_FORM = """
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Rider<span>Music</span></div>
+  <div class="logo">Rider<span>Music</span> Jukebox</div>
   <h2>Join the ride</h2>
   <p>Ask your driver for the 4-digit code.</p>
   <form method="post">

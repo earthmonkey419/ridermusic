@@ -1,6 +1,6 @@
-![RiderMusic](og-image.jpg)
+![RiderMusic Jukebox for Plex](og-image.jpg)
 
-# RiderMusic
+# RiderMusic Jukebox for Plex
 
 QR-based guest DJ system for rideshare passengers — from the makers of
 [MusicMind for Plex](https://musicmind.vp-fun.com/).
@@ -19,7 +19,7 @@ car. Standalone product: does not require MusicMind to run.
 ## How it works
 
 ```
-Guest phone (portal)  ->  RiderMusic backend  ->  Driver's phone (dashboard)  ->  car stereo
+Guest phone (portal)  ->  RiderMusic Jukebox for Plex backend  ->  Driver's phone (dashboard)  ->  car stereo
                               |
                               v
                         Plex Media Server
@@ -103,7 +103,7 @@ only — cookies won't persist in a real browser over plain HTTP.
 
 ## Exposing it to the internet
 
-RiderMusic needs to be reachable from outside your home network —
+RiderMusic Jukebox for Plex needs to be reachable from outside your home network —
 both the driver's phone and guest phones are typically on cellular,
 not your home WiFi, while actually driving.
 
@@ -115,7 +115,7 @@ assuming you already have a domain on Cloudflare:
    Cloudflare)
 2. Add a **Public Hostname** — pick a subdomain (e.g.
    `ridermusic.yourdomain.com`), and set the **Service URL** to
-   `http://localhost:6869` (or whatever host/port RiderMusic is
+   `http://localhost:6869` (or whatever host/port RiderMusic Jukebox for Plex is
    actually running on)
 3. **Leave the Path field completely empty.** This one matters: if
    you set Path to something like `/admin/login` (easy mistake if
@@ -153,7 +153,7 @@ over real HTTPS.
 ## Known limitations (current)
 
 - **Search quality** depends on what's actually tagged in your Plex
-  library. RiderMusic layers literal artist/title/genre matches on top
+  library. RiderMusic Jukebox for Plex layers literal artist/title/genre matches on top
   of Plex's fuzzy hub search, and mood buckets match real genre tags —
   but a library with thin or missing genre data will get thin results,
   same as any search built on top of it.

@@ -33,7 +33,7 @@ SIGN_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex — Print a Sign</title>
+<title>RiderMusic Jukebox for Plex — Print a Sign</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -146,7 +146,7 @@ SIGN_PAGE = """
 <body>
 <div class="wrap">
   <a class="back" href="/admin/dashboard">&larr; Back to dashboard</a>
-  <div class="logo">Rider<span class="accent">Music</span> for Plex — Print a Sign</div>
+  <div class="logo">Rider<span class="accent">Music</span> Jukebox for Plex — Print a Sign</div>
 
   <input type="text" id="headline-input" value="Be the DJ for your ride"
          oninput="document.getElementById('sign-headline').textContent = this.value">
@@ -160,7 +160,7 @@ SIGN_PAGE = """
   <button id="print-btn" onclick="window.print()">Print / Save as PDF</button>
 
   <div class="sign-card">
-    <div class="sign-logo">Rider<span>Music</span></div>
+    <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
     <div id="sign-headline">Be the DJ for your ride</div>
     <img src="/admin/sign/qr.png" alt="QR code to join">
     <div class="sign-sub">Scan to choose the music</div>

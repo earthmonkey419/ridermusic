@@ -212,7 +212,7 @@ GUEST_PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RiderMusic for Plex</title>
+<title>RiderMusic Jukebox for Plex</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -412,7 +412,7 @@ GUEST_PAGE = """
 <div class="wrap">
 
   <header>
-    <span class="logo">Rider<span>Music</span> for Plex</span>
+    <span class="logo">Rider<span>Music</span> Jukebox for Plex</span>
   </header>
 
   <h1>Be the <span class="hl">DJ</span> for your ride</h1>
