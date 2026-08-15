@@ -772,10 +772,10 @@ GUEST_PAGE = """
     </div>
   </div>
 
-  <div id="search-results"></div>
-
   <h3>Up Next</h3>
   <div class="card" id="queue"></div>
+
+  <div id="search-results"></div>
 
   <div id="footer">
     © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
