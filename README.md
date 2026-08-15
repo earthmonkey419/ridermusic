@@ -28,7 +28,11 @@ Guest phone (portal)  ->  RiderMusic Jukebox for Plex backend  ->  Driver's phon
 - **Guest portal:** search, browse mood buckets (genre-tag based —
   Chill, Dance, R&B, Disco, 80s, Country, Hip Hop, Classical,
   Electronic, Rock, Pop, Jazz, Reggae, Latin), add to queue,
-  play/pause/skip, volume (clamped to a driver-set ceiling)
+  play/pause/skip, volume (clamped to a driver-set ceiling). Search
+  and mood results load via infinite scroll rather than a fixed cap,
+  the playback controller sits just under the mood pills so it stays
+  reachable no matter how far a guest scrolls, and a persistent
+  back-to-top button is always on screen
 - **Join codes:** the driver taps "Start Ride" on the dashboard,
   which shows a 4-digit code. Every passenger — including the first
   — enters that code to join. Stops a stranger with an old link from
@@ -101,6 +105,36 @@ only — cookies won't persist in a real browser over plain HTTP.
 **Getting a real Plex token:** see
 [Plex's own guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
+## Optional: MusicMind for Plex integration
+
+RiderMusic Jukebox for Plex remains a standalone product — it never
+requires MusicMind to install or run. But if you *also* run
+[MusicMind for Plex](https://musicmind.vp-fun.com/) against the same
+library, RiderMusic Jukebox for Plex will automatically use its local
+tagging data for search and mood-bucket browsing, instead of live
+Plex queries.
+
+**Why it's worth enabling:** MusicMind's tagging covers far more of
+a typical library than Plex's own genre field, and results come from
+one local SQL query instead of dozens of live Plex round-trips —
+mood-bucket taps that took several seconds (and, at the extreme, tens
+of seconds for broad buckets like Rock) resolve in well under a
+tenth of a second locally.
+
+**To enable it**, add one line to `config.py` pointing at
+MusicMind's SQLite database:
+
+```python
+MUSICMIND_DB_PATH = "/path/to/plex_music_brain.db"
+```
+
+Leave it unset (the default) and RiderMusic Jukebox for Plex behaves
+exactly as it does without MusicMind installed. If the path is set
+but the file is missing, locked, or its schema doesn't match what's
+expected, RiderMusic Jukebox for Plex falls back silently to the
+live-Plex path — a MusicMind hiccup can never break a guest's search
+or mood-pill tap. The database is only ever opened read-only.
+
 ## Exposing it to the internet
 
 RiderMusic Jukebox for Plex needs to be reachable from outside your home network —
@@ -153,10 +187,12 @@ over real HTTPS.
 ## Known limitations (current)
 
 - **Search quality** depends on what's actually tagged in your Plex
-  library. RiderMusic Jukebox for Plex layers literal artist/title/genre matches on top
-  of Plex's fuzzy hub search, and mood buckets match real genre tags —
-  but a library with thin or missing genre data will get thin results,
-  same as any search built on top of it.
+  library (or, if enabled, MusicMind's tagging database — see
+  "Optional: MusicMind for Plex integration" above). RiderMusic
+  Jukebox for Plex layers literal artist/title/genre matches on top
+  of Plex's fuzzy hub search, and mood buckets match real genre
+  tags — but a library with thin or missing tagging will get thin
+  results, same as any search built on top of it.
 - **Guest join may not work in all browsers.** Confirmed working on
   Safari and Chrome for iOS; at least one other in-app browser (an
   embedded browser inside another app, not a standalone browser) has
@@ -170,6 +206,12 @@ over real HTTPS.
 - **A song added right after an app restart sometimes doesn't
   auto-play** — suspected browser autoplay-policy interaction, not
   yet root-caused.
+- **The very first mood-pill tap after a cold start (or cache
+  expiry) for a broad bucket can still be slow if MusicMind isn't
+  enabled** — mood results are cached and shared across all guests
+  once built, but that first build still walks Plex's genre tags
+  live. Enabling the MusicMind integration above avoids this
+  entirely.
 - **Installer/packaging story** for a driver who isn't the original
   developer is still minimal — this README is the current documentation.
 
