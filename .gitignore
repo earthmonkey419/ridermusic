@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.db
 *.log
+diagnose_*.py
+timing_check.py
+*.bak
+node_modules/
