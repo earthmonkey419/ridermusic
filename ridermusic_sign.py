@@ -105,7 +105,7 @@ SIGN_PAGE = """
   }
   .sign-card img {
     width: 100%;
-    max-width: 260px;
+    max-width: 130px;
     height: auto;
     display: block;
     margin: 0 auto 1em auto;
