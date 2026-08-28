@@ -46,6 +46,13 @@ MOOD_BUCKETS = {
     "jazz": ["jazz"],
     "reggae": ["reggae", "ska", "dub"],
     "latin": ["latin", "salsa", "bossa", "cumbia"],
+    "new wave": ["new wave"],
+    "post-punk": ["post-punk", "post punk"],
+    "desi": [
+        "bollywood", "indian", "punjabi", "desi", "sitar", "raga",
+        "carnatic", "hindustani", "tabla", "tamil", "ghazal",
+    ],
+    "hindu devotional": ["devotional", "hindu", "bhajan", "qawwali"],
 }
 
 # Some buckets need a keyword to cast a wide net (e.g. "country" has to
@@ -71,6 +78,10 @@ MOOD_BUCKET_EXCLUDED_TAGS = {
         "country-influenced pop",
         "country-infused house",
         "dance-pop country",
+    },
+    "hindu devotional": {
+        "hindustani",
+        "hindustani classical",
     },
 }
 
@@ -608,6 +619,49 @@ GUEST_PAGE = """
     white-space: nowrap;
   }
   .mood-pill:active { background: var(--accent); }
+  .mood-pill.more-trigger {
+    background: var(--cta);
+    color: var(--bg);
+    font-weight: 700;
+    border-color: var(--cta);
+  }
+  .sheet-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 40;
+  }
+  .sheet-backdrop.open { display: block; }
+  .bottom-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--panel);
+    border-radius: 16px 16px 0 0;
+    padding: 1.2em 1.25em calc(1.2em + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    z-index: 41;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .bottom-sheet.open { transform: translateY(0); }
+  .sheet-handle {
+    width: 36px;
+    height: 4px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 999px;
+    margin: 0 auto 1em;
+  }
+  .sheet-title {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    margin-bottom: 0.8em;
+    color: var(--text);
+  }
+  .sheet-pills { display: flex; flex-wrap: wrap; gap: 0.5em; }
 
   .card {
     background: var(--panel);
@@ -746,20 +800,33 @@ GUEST_PAGE = """
   </div>
 
   <div class="mood-row">
-    <button class="mood-pill" data-bucket="chill">Chill</button>
-    <button class="mood-pill" data-bucket="dance">Dance</button>
-    <button class="mood-pill" data-bucket="r&b">R&amp;B</button>
-    <button class="mood-pill" data-bucket="disco">Disco</button>
-    <button class="mood-pill" data-bucket="80s">80s</button>
-    <button class="mood-pill" data-bucket="country">Country</button>
-    <button class="mood-pill" data-bucket="hip hop">Hip Hop</button>
-    <button class="mood-pill" data-bucket="classical">Classical</button>
-    <button class="mood-pill" data-bucket="electronic">Electronic</button>
     <button class="mood-pill" data-bucket="rock">Rock</button>
     <button class="mood-pill" data-bucket="pop">Pop</button>
-    <button class="mood-pill" data-bucket="jazz">Jazz</button>
-    <button class="mood-pill" data-bucket="reggae">Reggae</button>
-    <button class="mood-pill" data-bucket="latin">Latin</button>
+    <button class="mood-pill" data-bucket="new wave">New Wave</button>
+    <button class="mood-pill" data-bucket="post-punk">Post-Punk</button>
+    <button class="mood-pill" data-bucket="dance">Dance</button>
+    <button class="mood-pill" data-bucket="electronic">Electronic</button>
+    <button class="mood-pill" data-bucket="r&b">R&amp;B</button>
+    <button class="mood-pill more-trigger" id="more-moods-btn">More &raquo;</button>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <div class="bottom-sheet" id="mood-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">More moods</div>
+    <div class="sheet-pills">
+      <button class="mood-pill" data-bucket="chill">Chill</button>
+      <button class="mood-pill" data-bucket="country">Country</button>
+      <button class="mood-pill" data-bucket="hip hop">Hip Hop</button>
+      <button class="mood-pill" data-bucket="classical">Classical</button>
+      <button class="mood-pill" data-bucket="disco">Disco</button>
+      <button class="mood-pill" data-bucket="reggae">Reggae</button>
+      <button class="mood-pill" data-bucket="80s">80s</button>
+      <button class="mood-pill" data-bucket="jazz">Jazz</button>
+      <button class="mood-pill" data-bucket="latin">Latin</button>
+      <button class="mood-pill" data-bucket="desi">Desi</button>
+      <button class="mood-pill" data-bucket="hindu devotional">Hindu Devotional</button>
+    </div>
   </div>
 
   <h3>Now Playing</h3>
@@ -1012,9 +1079,23 @@ document.getElementById('search-btn').addEventListener('click', () => {
 document.getElementById('search-box').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') doSearch(e.target.value.trim());
 });
-document.querySelectorAll('.mood-pill').forEach(btn => {
-  btn.addEventListener('click', () => doMood(btn.dataset.bucket));
+document.querySelectorAll('.mood-pill[data-bucket]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    doMood(btn.dataset.bucket);
+    closeMoodSheet();
+  });
 });
+
+function openMoodSheet() {
+  document.getElementById('sheet-backdrop').classList.add('open');
+  document.getElementById('mood-sheet').classList.add('open');
+}
+function closeMoodSheet() {
+  document.getElementById('sheet-backdrop').classList.remove('open');
+  document.getElementById('mood-sheet').classList.remove('open');
+}
+document.getElementById('more-moods-btn').addEventListener('click', openMoodSheet);
+document.getElementById('sheet-backdrop').addEventListener('click', closeMoodSheet);
 
 document.getElementById('play-pause-btn').addEventListener('click', async () => {
   const res = await fetch('/guest/playback');
