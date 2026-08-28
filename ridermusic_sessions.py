@@ -180,8 +180,8 @@ NO_RIDE_PAGE = """
   <div class="logo">Rider<span>Music</span> Jukebox</div>
   <h2>No playlist in progress</h2>
   <p>Ask your driver to start the ride, then try scanning again.</p>
-</div>
 """ + JOIN_FOOTER_HTML + """
+</div>
 </body>
 </html>
 """
@@ -209,8 +209,8 @@ REJOIN_FORM = """
     <button type="submit">Join</button>
   </form>
   __ERROR__
-</div>
 """ + JOIN_FOOTER_HTML + """
+</div>
 </body>
 </html>
 """
