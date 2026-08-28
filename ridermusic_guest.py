@@ -671,6 +671,8 @@ GUEST_PAGE = """
     cursor: pointer;
     white-space: nowrap;
   }
+  .add-btn:disabled { cursor: default; opacity: 0.85; }
+  .add-btn.added { background: var(--accent); color: #fff; }
   .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
   .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
   .end-hint { text-align: center; font-size: 0.85em; }
@@ -781,6 +783,7 @@ GUEST_PAGE = """
     © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
     <a href="https://vp-fun.com">vp-fun.com</a> ·
     From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
+    <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
     Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
   </div>
 
@@ -850,6 +853,7 @@ function addTrackButton(t) {
   btn.className = 'add-btn';
   btn.textContent = '+ Add';
   btn.addEventListener('click', async () => {
+    btn.disabled = true;
     const r = await fetch('/guest/queue/add', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -857,10 +861,18 @@ function addTrackButton(t) {
     });
     const result = await r.json();
     if (result.error) {
+      btn.disabled = false;
       alert(result.error === 'queue_limit_reached' ? 'Queue is full!' : result.error);
     } else {
+      btn.textContent = 'Added';
+      btn.classList.add('added');
       refreshQueue();
       refreshPlayback();
+      setTimeout(() => {
+        btn.textContent = '+ Add';
+        btn.classList.remove('added');
+        btn.disabled = false;
+      }, 1500);
     }
   });
   div.appendChild(btn);

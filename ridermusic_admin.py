@@ -102,6 +102,7 @@ FOOTER_HTML = """
   © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
   <a href="https://vp-fun.com">vp-fun.com</a> ·
   From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
+  <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
   Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
 </div>
 """
@@ -344,7 +345,10 @@ async function pollPlayer() {
   track.textContent = data.now_playing.title;
   artist.textContent = data.now_playing.artist;
   status.textContent = data.is_playing ? 'Playing' : 'Paused';
-  audio.volume = data.volume / 100;
+  // Intentionally NOT syncing audio.volume to data.volume here — that
+  // value is clamped to the guest volume ceiling. The driver's own
+  // player should always have full, unclamped volume access via the
+  // native <audio controls> slider.
 
   if (data.now_playing.rating_key !== currentRatingKey) {
     currentRatingKey = data.now_playing.rating_key;
