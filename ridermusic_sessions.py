@@ -140,7 +140,27 @@ BASE_JOIN_STYLE = """
     cursor: pointer;
   }
   .error { color: #ff6b6b; margin-top: 1em; }
+  #footer {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.75em;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+  #footer a { color: var(--accent); text-decoration: none; }
 </style>
+"""
+
+JOIN_FOOTER_HTML = """
+<div id="footer">
+  © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
+  <a href="https://vp-fun.com">vp-fun.com</a> ·
+  From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
+  <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
+  Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+</div>
 """
 
 NO_RIDE_PAGE = """
@@ -161,6 +181,7 @@ NO_RIDE_PAGE = """
   <h2>No playlist in progress</h2>
   <p>Ask your driver to start the ride, then try scanning again.</p>
 </div>
+""" + JOIN_FOOTER_HTML + """
 </body>
 </html>
 """
@@ -189,6 +210,7 @@ REJOIN_FORM = """
   </form>
   __ERROR__
 </div>
+""" + JOIN_FOOTER_HTML + """
 </body>
 </html>
 """
