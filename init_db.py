@@ -67,3 +67,12 @@ try:
 except sqlite3.OperationalError as e:
     print(f"rejoin_code column already exists or other issue: {e}")
 conn2.close()
+
+conn3 = sqlite3.connect(DB_PATH)
+try:
+    conn3.execute("ALTER TABLE queue ADD COLUMN played_at REAL")
+    conn3.commit()
+    print("added played_at column")
+except sqlite3.OperationalError as e:
+    print(f"played_at column already exists or other issue: {e}")
+conn3.close()

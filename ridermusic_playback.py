@@ -34,7 +34,10 @@ def advance_to_next(db, session_id, mark_current_played=True):
     state = get_playback_state(db, session_id)
 
     if mark_current_played and state["current_queue_id"]:
-        db.execute("UPDATE queue SET played = 1 WHERE id = ?", (state["current_queue_id"],))
+        db.execute(
+            "UPDATE queue SET played = 1, played_at = ? WHERE id = ?",
+            (time.time(), state["current_queue_id"])
+        )
         db.commit()
 
     next_row = db.execute(
@@ -155,7 +158,88 @@ def register_playback_routes(app):
             return jsonify({"error": "no_active_session"}), 404
 
         next_id = advance_to_next(db, active["session_id"], mark_current_played=True)
+        log_action(db, active["session_id"], "skip", detail="driver")
         return jsonify({"advanced": True, "next_queue_id": next_id})
+
+    @app.route("/player/previous", methods=["POST"])
+    @require_admin_auth
+    def player_previous():
+        db = get_db()
+        active = get_active_session(db)
+        if not active:
+            return jsonify({"error": "no_active_session"}), 404
+
+        session_id = active["session_id"]
+        state = get_playback_state(db, session_id)
+
+        # Put the currently playing track back into the upcoming queue --
+        # its added_at is earlier than anything still unplayed, so it
+        # naturally lands back at the front for the next skip forward.
+        if state["current_queue_id"]:
+            db.execute(
+                "UPDATE queue SET played = 0, played_at = NULL WHERE id = ?",
+                (state["current_queue_id"],)
+            )
+
+        prev_row = db.execute(
+            "SELECT id FROM queue WHERE session_id = ? AND played = 1 "
+            "ORDER BY played_at DESC LIMIT 1",
+            (session_id,)
+        ).fetchone()
+
+        if not prev_row:
+            db.commit()
+            return jsonify({"error": "no_previous_track"}), 404
+
+        db.execute(
+            "UPDATE queue SET played = 0, played_at = NULL WHERE id = ?",
+            (prev_row["id"],)
+        )
+        db.execute(
+            "UPDATE playback_state SET current_queue_id = ?, is_playing = 1, "
+            "position_ms = 0, updated_at = ? WHERE session_id = ?",
+            (prev_row["id"], time.time(), session_id)
+        )
+        db.commit()
+        log_action(db, session_id, "previous", detail="driver")
+        return jsonify({"went_back": True, "queue_id": prev_row["id"]})
+
+    @app.route("/player/play_pause", methods=["POST"])
+    @require_admin_auth
+    def player_play_pause():
+        db = get_db()
+        active = get_active_session(db)
+        if not active:
+            return jsonify({"error": "no_active_session"}), 404
+
+        session_id = active["session_id"]
+        state = get_playback_state(db, session_id)
+
+        data = request.get_json(silent=True) or {}
+        action = data.get("action")
+        if action not in ("play", "pause"):
+            action = "pause" if state["is_playing"] else "play"
+
+        db.execute(
+            "UPDATE playback_state SET is_playing = ?, updated_at = ? WHERE session_id = ?",
+            (1 if action == "play" else 0, time.time(), session_id)
+        )
+        db.commit()
+        log_action(db, session_id, "play_pause", detail=f"driver:{action}")
+        return jsonify({"is_playing": action == "play"})
+
+    @app.route("/player/restart", methods=["POST"])
+    @require_admin_auth
+    def player_restart():
+        # Position isn't tracked server-side (the driver's own <audio>
+        # element owns playback position), so this is really just a log
+        # entry -- the actual seek-to-0 happens client-side.
+        db = get_db()
+        active = get_active_session(db)
+        if not active:
+            return jsonify({"error": "no_active_session"}), 404
+        log_action(db, active["session_id"], "restart", detail="driver")
+        return jsonify({"restarted": True})
 
 
 def register_player_state_route(app):

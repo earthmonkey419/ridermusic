@@ -274,6 +274,33 @@ ADMIN_DASHBOARD_PAGE = """
     font-weight: 600;
     font-size: 0.85em;
   }
+  .driver-controls {
+    display: flex;
+    gap: 0.6em;
+    margin-top: 1em;
+  }
+  .drv-btn {
+    flex: 1;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: var(--text);
+    padding: 0.9em 0.4em;
+    border-radius: 10px;
+    font-size: 1.5em;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .drv-btn:active { opacity: 0.75; }
+  .drv-btn.primary { background: var(--cta); color: #1a1a1a; }
+  .drv-label {
+    text-align: center;
+    font-size: 0.68em;
+    color: var(--text-muted);
+    margin-top: 0.4em;
+  }
   .stat { font-size: 1.05em; margin-bottom: 0.3em; }
   .stat .label { color: var(--text-muted); }
   #end-btn {
@@ -310,6 +337,13 @@ ADMIN_DASHBOARD_PAGE = """
     <div id="artist"></div>
     <audio id="player" controls></audio>
     <span id="play-status">Waiting...</span>
+    <div class="driver-controls">
+      <button class="drv-btn" id="prev-btn" title="Previous track">⏮</button>
+      <button class="drv-btn" id="restart-btn" title="Restart track">↺</button>
+      <button class="drv-btn primary" id="playpause-btn" title="Play / Pause">⏯</button>
+      <button class="drv-btn" id="next-btn" title="Skip track">⏭</button>
+    </div>
+    <div class="drv-label">Back · Restart · Play/Pause · Skip — overrides work regardless of what riders are doing</div>
   </div>
 
   <div class="card" id="status">Loading...</div>
@@ -364,6 +398,40 @@ async function pollPlayer() {
 
 document.getElementById('player').addEventListener('ended', async () => {
   await fetch('/player/next', { method: 'POST' });
+});
+
+document.getElementById('next-btn').addEventListener('click', async () => {
+  await fetch('/player/next', { method: 'POST' });
+  pollPlayer();
+  pollStatus();
+});
+
+document.getElementById('prev-btn').addEventListener('click', async () => {
+  const r = await fetch('/player/previous', { method: 'POST' });
+  const result = await r.json();
+  if (result.error === 'no_previous_track') {
+    alert('Nothing earlier to go back to yet.');
+  }
+  pollPlayer();
+  pollStatus();
+});
+
+document.getElementById('restart-btn').addEventListener('click', async () => {
+  const audio = document.getElementById('player');
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+  fetch('/player/restart', { method: 'POST' });
+});
+
+document.getElementById('playpause-btn').addEventListener('click', async () => {
+  const audio = document.getElementById('player');
+  const action = audio.paused ? 'play' : 'pause';
+  await fetch('/player/play_pause', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action})
+  });
+  pollPlayer();
 });
 
 async function pollStatus() {
@@ -469,7 +537,10 @@ GUIDE_PAGE = """
   <h3>The driver player</h3>
   <p>This dashboard page is also the player &mdash; pair your phone to
   the car stereo (Bluetooth or aux) the same way you would for any
-  other audio app, then leave this page open while you drive.</p>
+  other audio app, then leave this page open while you drive. Below
+  the player, four buttons give you a direct override &mdash; go back
+  a track, restart the current one, play/pause, or skip &mdash;
+  independent of anything a rider is doing on their own phone.</p>
 
   <h3>Changing settings</h3>
   <p>Admin password, volume ceiling, session timeout, and Plex

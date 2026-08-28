@@ -868,11 +868,6 @@ function addTrackButton(t) {
       btn.classList.add('added');
       refreshQueue();
       refreshPlayback();
-      setTimeout(() => {
-        btn.textContent = '+ Add';
-        btn.classList.remove('added');
-        btn.disabled = false;
-      }, 1500);
     }
   });
   div.appendChild(btn);
