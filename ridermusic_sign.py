@@ -54,6 +54,25 @@ SIGN_PAGE = """
     margin-bottom: 1.5em;
   }
 
+  .layout-toggle {
+    display: flex;
+    gap: 0.5em;
+    margin-bottom: 1.2em;
+  }
+  .toggle-btn {
+    flex: 1;
+    padding: 0.7em;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .toggle-btn.active { background: var(--accent); }
+
   .print-tip {
     background: var(--panel);
     border-radius: 10px;
@@ -78,8 +97,12 @@ SIGN_PAGE = """
     margin-bottom: 2em;
   }
 
-  /* --- The printable card itself --- */
-  .sign-card {
+  /* --- The printable card(s) --- */
+  .sign-card { display: none; }
+  .sign-card.portrait.active { display: block; }
+  .sign-card.banner.active { display: flex; }
+
+  .sign-card.portrait {
     background: #ffffff;
     color: #1a1a1a;
     border-radius: 18px;
@@ -95,15 +118,17 @@ SIGN_PAGE = """
     margin-bottom: 0.8em;
   }
   .sign-logo span { color: #ff9a00; }
-  #sign-headline {
+  .sign-headline-text {
     font-family: 'Sora', sans-serif;
     font-weight: 800;
-    font-size: 1.6em;
     color: #1a1a1a;
-    margin: 0 0 1em 0;
     line-height: 1.2;
   }
-  .sign-card img {
+  .sign-card.portrait #sign-headline-portrait {
+    font-size: 1.6em;
+    margin: 0 0 1em 0;
+  }
+  .sign-card.portrait img {
     width: 100%;
     max-width: 130px;
     height: auto;
@@ -121,13 +146,48 @@ SIGN_PAGE = """
     margin-top: 0.8em;
   }
 
+  /* --- Banner layout: fixed 2in-tall row, QR + text side by side --- */
+  .sign-card.banner {
+    background: #ffffff;
+    color: #1a1a1a;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    align-items: center;
+    gap: 0.35in;
+    padding: 0.15in 0.3in;
+    width: fit-content;
+  }
+  .sign-card.banner img {
+    height: 2in;
+    width: 2in;
+    display: block;
+    flex-shrink: 0;
+  }
+  .banner-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.12in;
+  }
+  .sign-card.banner .sign-logo {
+    font-size: 1.1em;
+    margin-bottom: 0;
+  }
+  .sign-card.banner #sign-headline-banner {
+    font-size: 1.5em;
+    white-space: nowrap;
+  }
+  .sign-card.banner .sign-sub {
+    font-size: 1em;
+  }
+
   @media print {
     html, body {
       background: #ffffff !important;
       margin: 0;
       padding: 0;
     }
-    .wrap > *:not(.sign-card) {
+    .wrap > *:not(.sign-card.active) {
       display: none !important;
     }
     .wrap {
@@ -135,7 +195,7 @@ SIGN_PAGE = """
       max-width: none;
     }
     .sign-card {
-      box-shadow: none;
+      box-shadow: none !important;
       margin: 0 auto;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -149,26 +209,52 @@ SIGN_PAGE = """
   <div class="logo">Rider<span class="accent">Music</span> Jukebox for Plex — Print a Sign</div>
 
   <input type="text" id="headline-input" value="Be the DJ for your ride"
-         oninput="document.getElementById('sign-headline').textContent = this.value">
+         oninput="document.querySelectorAll('.sign-headline-text').forEach(el => el.textContent = this.value)">
+
+  <div class="layout-toggle">
+    <button class="toggle-btn active" data-layout="portrait" onclick="setSignLayout('portrait')">Portrait</button>
+    <button class="toggle-btn" data-layout="banner" onclick="setSignLayout('banner')">Banner (2in tall)</button>
+  </div>
 
   <div class="print-tip">
     <strong>Before printing:</strong> in your browser's print dialog, make
     sure "Background graphics" is turned on, or the card will print
-    without its colors.
+    without its colors. For the banner layout, also set scale to
+    "Actual size" / 100% (not "Fit to page") so the QR code prints at
+    exactly 2 inches.
   </div>
 
   <button id="print-btn" onclick="window.print()">Print / Save as PDF</button>
 
-  <div class="sign-card">
+  <div class="sign-card portrait active">
     <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
-    <div id="sign-headline">Be the DJ for your ride</div>
+    <div id="sign-headline-portrait" class="sign-headline-text">Be the DJ for your ride</div>
     <img src="/admin/sign/qr.png" alt="QR code to join">
     <div class="sign-sub">Scan to choose the music</div>
     <div class="sign-website">ridermusic.vp-fun.com</div>
   </div>
 
+  <div class="sign-card banner">
+    <img src="/admin/sign/qr.png" alt="QR code to join">
+    <div class="banner-text">
+      <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
+      <div id="sign-headline-banner" class="sign-headline-text">Be the DJ for your ride</div>
+      <div class="sign-sub">Scan to choose the music</div>
+    </div>
+  </div>
+
   """ + FOOTER_HTML + """
 </div>
+<script>
+function setSignLayout(layout) {
+  document.querySelectorAll('.toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === layout);
+  });
+  document.querySelectorAll('.sign-card').forEach(c => {
+    c.classList.toggle('active', c.classList.contains(layout));
+  });
+}
+</script>
 </body>
 </html>
 """
