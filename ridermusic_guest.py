@@ -432,9 +432,24 @@ def register_guest_routes(app):
             plex = get_plex()
             section = plex.library.section(MUSIC_LIB)
             all_results = _build_mood_pool(section, bucket)
-            _cache_set(cache_key, all_results, ttl=_MOOD_CACHE_TTL)
+            if all_results:  # never cache an empty pool -- it would stick for an hour
+                _cache_set(cache_key, all_results, ttl=_MOOD_CACHE_TTL)
 
-        return _paged_response(all_results, offset, limit)
+        # Page through a seeded shuffle of the cached pool: a fresh tap
+        # (no seed) gets a new order; "load more" sends the same seed
+        # back, so scrolling never repeats or skips a track.
+        seed = request.args.get("seed", type=int)
+        if seed is None:
+            seed = random.randint(0, 2**31 - 1)
+        shuffled = list(all_results)
+        random.Random(seed).shuffle(shuffled)
+        page = shuffled[offset:offset + limit]
+        return jsonify({
+            "results": page,
+            "has_more": (offset + limit) < len(shuffled),
+            "next_offset": offset + len(page),
+            "seed": seed,
+        })
 
     @app.route("/guest/queue/add", methods=["POST"])
     @require_active_session
@@ -1014,6 +1029,8 @@ function maybeShowEndHint(results) {
   el.appendChild(doneEl);
 }
 
+let currentShuffleSeed = null;  // mood browsing: threaded through 'load more' so paging stays consistent
+
 async function loadResults(isFirstPage) {
   if (isLoadingResults) return;
   if (!isFirstPage && !hasMoreResults) return;
@@ -1021,6 +1038,7 @@ async function loadResults(isFirstPage) {
 
   if (isFirstPage) {
     currentOffset = 0;
+    currentShuffleSeed = null;
     removeSentinel();
     showSpinner();
   } else {
@@ -1037,6 +1055,7 @@ async function loadResults(isFirstPage) {
     url = '/guest/search?' + params.toString();
   } else {
     params.set('bucket', currentQueryValue);
+    if (currentShuffleSeed !== null) params.set('seed', String(currentShuffleSeed));
     url = '/guest/mood?' + params.toString();
   }
 
@@ -1056,6 +1075,7 @@ async function loadResults(isFirstPage) {
 
   appendResults(data.results, isFirstPage);
   hasMoreResults = !!data.has_more;
+  if (currentQueryType === 'mood' && typeof data.seed === 'number') currentShuffleSeed = data.seed;
   currentOffset = typeof data.next_offset === 'number'
     ? data.next_offset
     : currentOffset + data.results.length;
