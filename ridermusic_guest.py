@@ -130,7 +130,7 @@ def _cache_get(key):
 
 def _cache_evict_stale():
     now = time.time()
-    stale = [k for k, (ts, _, ttl) in _RESULT_CACHE.items() if now - ts > ttl]
+    stale = [k for k, (ts, _, ttl) in list(_RESULT_CACHE.items()) if now - ts > ttl]
     for k in stale:
         _RESULT_CACHE.pop(k, None)
 
@@ -201,13 +201,13 @@ def _musicmind_search(q, limit=500):
         conn.row_factory = sqlite3.Row
         artist_rows = conn.execute(
             "SELECT rating_key, title, artist, album, duration_ms "
-            "FROM tracks WHERE LOWER(artist) LIKE ?",
-            (q_like,),
+            "FROM tracks WHERE LOWER(artist) LIKE ? LIMIT ?",
+            (q_like, limit),
         ).fetchall()
         title_rows = conn.execute(
             "SELECT rating_key, title, artist, album, duration_ms "
-            "FROM tracks WHERE LOWER(title) LIKE ?",
-            (q_like,),
+            "FROM tracks WHERE LOWER(title) LIKE ? LIMIT ?",
+            (q_like, limit),
         ).fetchall()
     finally:
         conn.close()
