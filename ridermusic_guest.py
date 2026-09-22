@@ -639,6 +639,36 @@ GUEST_PAGE = """
     white-space: nowrap;
   }
   .mood-pill:active { background: var(--accent); }
+  .mood-pill.active[data-bucket] {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .mood-pill.active[data-bucket]::after { content: " ↻"; }
+
+  .results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8em;
+    padding: 0.2em 0 0.7em 0;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+  .results-head strong { color: var(--text); font-weight: 600; }
+  .remix-btn {
+    padding: 0.45em 0.9em;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .remix-btn:active { background: var(--accent); }
   .mood-pill.more-trigger {
     background: var(--cta);
     color: var(--bg);
@@ -1069,6 +1099,7 @@ async function loadResults(isFirstPage) {
 
   if (isFirstPage) {
     document.getElementById('search-results').innerHTML = '';
+    if (currentQueryType === 'mood') renderMoodHeader();
   } else {
     removeLoadingMore();
   }
@@ -1085,16 +1116,45 @@ async function loadResults(isFirstPage) {
   ensureSentinel();
 }
 
+let currentMoodLabel = '';
+
+function setActivePill(bucket) {
+  document.querySelectorAll('.mood-pill[data-bucket]').forEach(p => {
+    p.classList.toggle('active', p.dataset.bucket === bucket);
+  });
+}
+
+// Riders didn't discover that re-tapping a pill reshuffles, so say it
+// out loud: a header above mood results with an explicit "New mix".
+function renderMoodHeader() {
+  const el = document.getElementById('search-results');
+  const head = document.createElement('div');
+  head.className = 'results-head';
+  const label = document.createElement('span');
+  const name = document.createElement('strong');
+  name.textContent = currentMoodLabel;
+  label.append(name, document.createTextNode(' · random mix'));
+  const btn = document.createElement('button');
+  btn.className = 'remix-btn';
+  btn.textContent = '↻ New mix';
+  btn.addEventListener('click', () => doMood(currentQueryValue, currentMoodLabel));
+  head.append(label, btn);
+  el.appendChild(head);
+}
+
 function doSearch(q) {
   if (!q) return;
   currentQueryType = 'search';
   currentQueryValue = q;
+  setActivePill(null);
   loadResults(true);
 }
 
-function doMood(bucket) {
+function doMood(bucket, label) {
   currentQueryType = 'mood';
   currentQueryValue = bucket;
+  currentMoodLabel = label || bucket;
+  setActivePill(bucket);
   loadResults(true);
 }
 
@@ -1106,7 +1166,7 @@ document.getElementById('search-box').addEventListener('keydown', (e) => {
 });
 document.querySelectorAll('.mood-pill[data-bucket]').forEach(btn => {
   btn.addEventListener('click', () => {
-    doMood(btn.dataset.bucket);
+    doMood(btn.dataset.bucket, btn.textContent.trim());
     closeMoodSheet();
   });
 });

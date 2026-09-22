@@ -78,6 +78,62 @@ SIGN_PAGE = """
   }
   .toggle-btn.active { background: var(--accent); }
 
+  .steps-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    margin-bottom: 1.2em;
+    font-size: 0.95em;
+    cursor: pointer;
+  }
+  .steps-toggle input { width: 1.15em; height: 1.15em; accent-color: var(--accent); }
+
+  .sign-steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+    color: #1a1a1a;
+    font-size: 0.8em;
+    line-height: 1.35;
+  }
+  .sign-steps.off { display: none !important; }
+  .sign-steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 1.75em;
+    margin-bottom: 0.35em;
+  }
+  .sign-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    width: 1.35em;
+    height: 1.35em;
+    line-height: 1.35em;
+    border-radius: 50%;
+    background: #44a1a4;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.85em;
+    text-align: center;
+  }
+  .sign-card.portrait .sign-steps {
+    margin: 1em auto 0 auto;
+    max-width: 15em;
+    padding-top: 0.9em;
+    border-top: 1px solid #e3e3e3;
+  }
+  /* Banner: steps stack under the tagline so the card stays 2in tall
+     and doesn't grow wider than a letter-size page. */
+  .sign-card.banner .sign-steps {
+    font-size: 0.72em;
+    margin-top: 0.02in;
+  }
+  .sign-card.banner .sign-steps li { margin-bottom: 0.15em; }
+
   .print-tip {
     background: var(--panel);
     border-radius: 10px;
@@ -221,6 +277,12 @@ SIGN_PAGE = """
     <button class="toggle-btn" data-layout="banner" onclick="setSignLayout('banner')">Banner (2in tall)</button>
   </div>
 
+  <label class="steps-toggle">
+    <input type="checkbox" id="steps-toggle" checked
+           onchange="document.querySelectorAll('.sign-steps').forEach(el => el.classList.toggle('off', !this.checked))">
+    Include simple instructions for riders
+  </label>
+
   <div class="print-tip">
     <strong>Before printing:</strong> in your browser's print dialog, make
     sure "Background graphics" is turned on, or the card will print
@@ -236,6 +298,11 @@ SIGN_PAGE = """
     <div id="sign-headline-portrait" class="sign-headline-text">Be the DJ for your ride</div>
     <img src="/admin/sign/qr.png" alt="QR code to join">
     <div class="sign-sub">Scan to choose the music</div>
+    <ol class="sign-steps">
+      <li>Scan the code with your phone camera</li>
+      <li>Enter the 4-digit ride code from your driver</li>
+      <li>Search or tap a genre, then tap <strong>+&nbsp;Add</strong></li>
+    </ol>
     <div class="sign-website">ridermusic.vp-fun.com</div>
   </div>
 
@@ -245,6 +312,11 @@ SIGN_PAGE = """
       <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
       <div id="sign-headline-banner" class="sign-headline-text">Be the DJ for your ride</div>
       <div class="sign-sub">Scan to choose the music</div>
+      <ol class="sign-steps">
+        <li>Scan the code with your phone camera</li>
+        <li>Enter the 4-digit ride code from your driver</li>
+        <li>Search or tap a genre, then tap <strong>+&nbsp;Add</strong></li>
+      </ol>
     </div>
   </div>
 
