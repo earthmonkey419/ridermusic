@@ -1,5 +1,7 @@
+import os
 import requests
-from flask import request, Response, abort
+from urllib.parse import quote
+from flask import request, Response, abort, send_file
 from plexapi.server import PlexServer
 
 from config import PLEX_URL, PLEX_TOKEN
@@ -14,7 +16,59 @@ def get_plex():
     return _plex
 
 
+_FALLBACK_ART = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "static", "android-chrome-512x512.png")
+
+
+def _fallback_art():
+    resp = send_file(_FALLBACK_ART, mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 def register_player_routes(app):
+
+    @app.route("/player/art/<int:rating_key>")
+    def player_art(rating_key):
+        # No login check on purpose: iOS's lock-screen artwork loader
+        # can't be relied on to send cookies. Instead, only tracks in
+        # the active ride's queue are served, so this can't be used to
+        # browse the library -- and the Plex token never leaves here.
+        from ridermusic_sessions import get_db, get_active_session
+        db = get_db()
+        active = get_active_session(db)
+        if not active:
+            return _fallback_art()
+        in_queue = db.execute(
+            "SELECT 1 FROM queue WHERE session_id = ? AND CAST(rating_key AS TEXT) = ? LIMIT 1",
+            (active["session_id"], str(rating_key))
+        ).fetchone()
+        if not in_queue:
+            return _fallback_art()
+
+        try:
+            track = get_plex().fetchItem(rating_key)
+            thumb = track.parentThumb or track.thumb or track.grandparentThumb
+        except Exception:
+            thumb = None
+        if not thumb:
+            return _fallback_art()
+
+        # Plex's photo transcoder: square 512px JPEG, the size/format
+        # MusicLounge's working lock-screen art uses.
+        url = (f"{PLEX_URL}/photo/:/transcode?width=512&height=512&minSize=1"
+               f"&upscale=1&url={quote(thumb, safe='')}&X-Plex-Token={PLEX_TOKEN}")
+        try:
+            upstream = requests.get(url, timeout=6)
+        except Exception:
+            return _fallback_art()
+        if upstream.status_code != 200 or not upstream.content:
+            return _fallback_art()
+
+        resp = Response(upstream.content,
+                        content_type=upstream.headers.get("Content-Type", "image/jpeg"))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
 
     @app.route("/player/stream/<int:rating_key>")
     @require_admin_auth

@@ -7,5 +7,5 @@
   ],
   "theme_color": "#224248",
   "background_color": "#224248",
-  "display": "standalone"
+  "display": "browser"
 }

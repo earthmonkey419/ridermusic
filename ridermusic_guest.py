@@ -1061,9 +1061,15 @@ function maybeShowEndHint(results) {
 
 let currentShuffleSeed = null;  // mood browsing: threaded through 'load more' so paging stays consistent
 
+let resultsRequestSeq = 0;
+
 async function loadResults(isFirstPage) {
-  if (isLoadingResults) return;
-  if (!isFirstPage && !hasMoreResults) return;
+  // Newest request wins. A first-page load (new search, pill tap,
+  // New mix) always goes through and supersedes anything in flight;
+  // previously it was silently dropped while a slow pool was loading.
+  // Only infinite-scroll "load more" waits its turn.
+  if (!isFirstPage && (isLoadingResults || !hasMoreResults)) return;
+  const mySeq = ++resultsRequestSeq;
   isLoadingResults = true;
 
   if (isFirstPage) {
@@ -1096,6 +1102,8 @@ async function loadResults(isFirstPage) {
   } catch (e) {
     data = { results: [], has_more: false, next_offset: currentOffset };
   }
+
+  if (mySeq !== resultsRequestSeq) return;  // superseded by a newer request
 
   if (isFirstPage) {
     document.getElementById('search-results').innerHTML = '';

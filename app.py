@@ -1,4 +1,4 @@
-from flask import Flask, redirect
+from flask import Flask, redirect, request
 
 from ridermusic_sessions import register_join_route, teardown_db
 from ridermusic_admin import register_admin_routes, register_admin_dashboard_route, register_guide_route
@@ -35,6 +35,14 @@ def add_no_cache_headers(response):
     # or otherwise) -- every page here is session-specific. A cached
     # copy of /guest or /join served to a different visitor would be a
     # real, serious bug, not just a staleness annoyance.
+    # Exception: static images (icons, logo) are the same for everyone,
+    # and iOS's lock-screen artwork loader won't show no-store images.
+    if request.path.startswith("/player/art/") or (
+        request.path.startswith("/static/") and request.path.rsplit(".", 1)[-1].lower() in ("png", "jpg", "jpeg", "ico")
+    ):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers.pop("Pragma", None)
+        return response
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
     response.headers["Pragma"] = "no-cache"
     return response

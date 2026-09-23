@@ -383,6 +383,7 @@ async function pollPlayer() {
     status.textContent = data.active ? 'Queue empty' : 'No active session';
     audio.pause();
     currentRatingKey = null;
+    clearMediaSession();
     return;
   }
 
@@ -397,6 +398,7 @@ async function pollPlayer() {
   if (data.now_playing.rating_key !== currentRatingKey) {
     currentRatingKey = data.now_playing.rating_key;
     audio.src = '/player/stream/' + currentRatingKey;
+    setMediaMetadata(data.now_playing);
   }
 
   if (data.is_playing && audio.paused) {
@@ -406,43 +408,129 @@ async function pollPlayer() {
   }
 }
 
-document.getElementById('player').addEventListener('ended', async () => {
-  await fetch('/player/next', { method: 'POST' });
-});
+// --- Transport actions (shared by on-screen buttons and Media Session) ---
 
-document.getElementById('next-btn').addEventListener('click', async () => {
+async function driverNext() {
   await fetch('/player/next', { method: 'POST' });
   pollPlayer();
   pollStatus();
-});
+}
 
-document.getElementById('prev-btn').addEventListener('click', async () => {
+async function driverPrevious(fromHardware) {
   const r = await fetch('/player/previous', { method: 'POST' });
   const result = await r.json();
   if (result.error === 'no_previous_track') {
+    // A steering-wheel "back" with nothing earlier just restarts the
+    // track -- an alert() would be invisible behind CarPlay anyway.
+    if (fromHardware) { driverRestart(); return; }
     alert('Nothing earlier to go back to yet.');
   }
   pollPlayer();
   pollStatus();
-});
+}
 
-document.getElementById('restart-btn').addEventListener('click', async () => {
+function driverRestart() {
   const audio = document.getElementById('player');
   audio.currentTime = 0;
   audio.play().catch(() => {});
   fetch('/player/restart', { method: 'POST' });
-});
+}
 
-document.getElementById('playpause-btn').addEventListener('click', async () => {
+async function driverSetPlaying(action) {
+  // Act on the <audio> element first: iOS only honours play() while
+  // still inside the user/hardware gesture, and this also keeps the
+  // 2s poll from "correcting" a lock-screen pause back to playing.
   const audio = document.getElementById('player');
-  const action = audio.paused ? 'play' : 'pause';
+  if (action === 'play') audio.play().catch(() => {});
+  else audio.pause();
   await fetch('/player/play_pause', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action})
   });
   pollPlayer();
+}
+
+document.getElementById('player').addEventListener('ended', async () => {
+  // Advance and load the next track right here rather than waiting for
+  // the 2s poll -- backgrounded tabs throttle timers, and a gap here is
+  // where playback would stall with the screen off.
+  await fetch('/player/next', { method: 'POST' });
+  pollPlayer();
 });
+
+document.getElementById('next-btn').addEventListener('click', driverNext);
+document.getElementById('prev-btn').addEventListener('click', () => driverPrevious(false));
+document.getElementById('restart-btn').addEventListener('click', driverRestart);
+document.getElementById('playpause-btn').addEventListener('click', () => {
+  const audio = document.getElementById('player');
+  driverSetPlaying(audio.paused ? 'play' : 'pause');
+});
+
+// --- Media Session: CarPlay / lock screen / Bluetooth displays ---------
+// Ported from MusicLounge Player's player-bar.js.
+
+const hasMediaSession = 'mediaSession' in navigator;
+
+let lastMediaNp = null;
+
+function setMediaMetadata(np) {
+  if (!hasMediaSession || !np) return;
+  lastMediaNp = np;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: np.title || '',
+      artist: np.artist || '',
+      album: 'RiderMusic Jukebox',
+      artwork: [
+        { src: location.origin + '/player/art/' + np.rating_key, sizes: '512x512', type: 'image/jpeg' },
+      ],
+    });
+  } catch (e) {}
+}
+
+function clearMediaSession() {
+  if (!hasMediaSession) return;
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = 'none';
+}
+
+function updatePositionState() {
+  if (!hasMediaSession || !('setPositionState' in navigator.mediaSession)) return;
+  const audio = document.getElementById('player');
+  if (!isFinite(audio.duration) || audio.duration <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: audio.duration,
+      playbackRate: audio.playbackRate || 1,
+      position: Math.min(audio.currentTime, audio.duration),
+    });
+  } catch (e) {}
+}
+
+if (hasMediaSession) {
+  const audio = document.getElementById('player');
+  audio.addEventListener('play', () => { navigator.mediaSession.playbackState = 'playing'; });
+  // iOS can reset Now Playing info when a new src loads; setting it
+  // again once audio is actually playing makes it stick.
+  audio.addEventListener('playing', () => { if (lastMediaNp) setMediaMetadata(lastMediaNp); });
+  audio.addEventListener('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
+  audio.addEventListener('loadedmetadata', updatePositionState);
+  audio.addEventListener('seeked', updatePositionState);
+
+  const handlers = [
+    ['play', () => driverSetPlaying('play')],
+    ['pause', () => driverSetPlaying('pause')],
+    ['nexttrack', () => driverNext()],
+    ['previoustrack', () => driverPrevious(true)],
+    ['seekto', (d) => {
+      if (typeof d.seekTime === 'number') { audio.currentTime = d.seekTime; updatePositionState(); }
+    }],
+  ];
+  handlers.forEach(([action, fn]) => {
+    try { navigator.mediaSession.setActionHandler(action, fn); } catch (e) {}
+  });
+}
 
 async function pollStatus() {
   const res = await fetch('/admin/status');
@@ -539,15 +627,13 @@ GUIDE_PAGE = """
   code is harmless.</p>
 
   <h3>How a ride works</h3>
-  <p>The first passenger to scan starts a session automatically &mdash;
-  you don't have to do anything, and no code is needed. If a second
-  phone scans while a ride is already active, they'll be asked for a
-  4-digit code &mdash; shown right on this dashboard &mdash; before
-  they can join. Just read it to them out loud. This keeps a stranger
-  with an old link from joining a ride already in progress. Sessions
-  expire automatically after the configured timeout. Your only
-  necessary action is the <strong>End Session</strong> button on the
-  dashboard, and only if a passenger is dropped off early.</p>
+  <p>Tap <strong>Start Ride</strong> on the dashboard when a passenger
+  gets in. That generates a 4-digit code, shown right on the dashboard;
+  every rider who scans the QR code is asked for it before they can
+  join. Just read it to them out loud. This keeps a stranger with an
+  old photo of the code from joining a ride already in progress.
+  Sessions expire automatically after the configured timeout; use
+  <strong>End Session</strong> if a passenger is dropped off early.</p>
 
   <h3>The driver player</h3>
   <p>This dashboard page is also the player &mdash; pair your phone to
@@ -555,7 +641,14 @@ GUIDE_PAGE = """
   other audio app, then leave this page open while you drive. Below
   the player, four buttons give you a direct override &mdash; go back
   a track, restart the current one, play/pause, or skip &mdash;
-  independent of anything a rider is doing on their own phone.</p>
+  independent of anything a rider is doing on their own phone. Your
+  car's steering-wheel and CarPlay controls work too, and the car's
+  display shows the current song.</p>
+  <p><strong>On iPhone, keep this page in a regular Safari tab.</strong>
+  Don't add it to your home screen as an app: iOS stops an installed
+  web app from starting the next song while it's in the background,
+  so music would stop after one track with the screen off. A Safari
+  tab doesn't have this problem.</p>
 
   <h3>Changing settings</h3>
   <p>Admin password, volume ceiling, session timeout, and Plex
