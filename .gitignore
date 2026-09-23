@@ -10,3 +10,4 @@ timing_check.py
 node_modules/
 
 *.bak-*
+patch_*.py
