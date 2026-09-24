@@ -7,6 +7,10 @@ from flask import request, redirect, make_response, jsonify, g
 from config import DB_PATH, SESSION_TIMEOUT_SECONDS, COOKIE_SECURE
 
 COOKIE_NAME = "rm_session"
+# Guest cookie outlives the session by this much so a rider who
+# reopens the page after the ride still gets the thank-you/feedback
+# screen. Only cosmetic: the server still validates every request.
+GUEST_COOKIE_GRACE_SECONDS = 24 * 60 * 60
 
 
 def get_db():
@@ -43,10 +47,12 @@ def create_session(db):
     session_id = secrets.token_urlsafe(32)
     now = time.time()
     code = _generate_rejoin_code()
+    feedback_token = secrets.token_urlsafe(16)
     db.execute(
         "INSERT INTO sessions (session_id, started_at, expires_at, "
-        "ended_by_admin, device_count, rejoin_code) VALUES (?, ?, ?, 0, 0, ?)",
-        (session_id, now, now + SESSION_TIMEOUT_SECONDS, code)
+        "ended_by_admin, device_count, rejoin_code, feedback_token) "
+        "VALUES (?, ?, ?, 0, 0, ?, ?)",
+        (session_id, now, now + SESSION_TIMEOUT_SECONDS, code, feedback_token)
     )
     db.commit()
     return session_id, code
@@ -269,6 +275,6 @@ def register_join_route(app):
         resp.set_cookie(
             COOKIE_NAME, active["session_id"],
             httponly=True, secure=COOKIE_SECURE, samesite="Lax",
-            max_age=SESSION_TIMEOUT_SECONDS
+            max_age=SESSION_TIMEOUT_SECONDS + GUEST_COOKIE_GRACE_SECONDS
         )
         return resp

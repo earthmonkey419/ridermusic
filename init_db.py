@@ -76,3 +76,23 @@ try:
 except sqlite3.OperationalError as e:
     print(f"played_at column already exists or other issue: {e}")
 conn3.close()
+
+conn4 = sqlite3.connect(DB_PATH)
+conn4.executescript("""
+CREATE TABLE IF NOT EXISTS feedback (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT,
+    rating       INTEGER,
+    comment      TEXT,
+    contact      TEXT,
+    submitted_at REAL
+);
+""")
+try:
+    conn4.execute("ALTER TABLE sessions ADD COLUMN feedback_token TEXT")
+    conn4.commit()
+    print("added feedback_token column")
+except sqlite3.OperationalError as e:
+    print(f"feedback_token column already exists or other issue: {e}")
+conn4.close()
+print("feedback table ready")

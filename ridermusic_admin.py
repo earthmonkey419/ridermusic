@@ -107,6 +107,13 @@ FOOTER_HTML = """
 </div>
 """
 
+SUPPORT_LINK_HTML = """
+<div style="margin:1.4em 0 0.2em 0; font-size:0.85em; color:var(--text-muted);">
+  Technical issue with RiderMusic?
+  <a href="mailto:support@vp-fun.com?subject=RiderMusic%20support&amp;body=What%20happened%3F%0A%0A" style="color:var(--accent);">Contact support</a>
+</div>
+"""
+
 LOGIN_FORM = """
 <!doctype html>
 <html lang="en">
@@ -362,6 +369,9 @@ ADMIN_DASHBOARD_PAGE = """
 
   <h3>Recent activity</h3>
   <div class="card" id="log"></div>
+
+  <h3><a href="/admin/feedback" style="color:var(--accent); text-decoration:none;">Rider feedback &rarr;</a></h3>
+  """ + SUPPORT_LINK_HTML + """
 
   """ + FOOTER_HTML + """
 </div>
@@ -655,6 +665,13 @@ GUIDE_PAGE = """
   connection details all live in <code>config.py</code> on the server
   running RiderMusic Jukebox for Plex &mdash; not in this UI yet. Changes require editing
   that file and restarting the app.</p>
+
+  <h3>Getting help</h3>
+  <p>Ran into a technical problem? Email
+  <a href="mailto:support@vp-fun.com?subject=RiderMusic%20support&amp;body=What%20happened%3F%0A%0A">support@vp-fun.com</a> and tell us what
+  happened and what you were doing. Comments from riders about the
+  music or the ride live under <a href="/admin/feedback">Rider
+  feedback</a>.</p>
 
   <h3>Full setup &amp; deployment</h3>
   <p>For installing RiderMusic Jukebox for Plex itself (Docker or manual Python setup,

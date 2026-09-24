@@ -5,6 +5,7 @@ from ridermusic_admin import register_admin_routes, register_admin_dashboard_rou
 from ridermusic_sign import register_sign_routes
 from ridermusic_player import register_player_routes
 from ridermusic_guest import register_guest_routes, register_guest_page_route
+from ridermusic_feedback import register_feedback_routes
 from ridermusic_playback import register_playback_routes, register_player_state_route, register_player_page_route
 
 app = Flask(__name__)
@@ -17,6 +18,7 @@ register_sign_routes(app)
 register_player_routes(app)
 register_guest_routes(app)
 register_guest_page_route(app)
+register_feedback_routes(app)
 register_playback_routes(app)
 register_player_state_route(app)
 register_player_page_route(app)

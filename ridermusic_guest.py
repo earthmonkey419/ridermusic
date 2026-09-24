@@ -897,6 +897,26 @@ GUEST_PAGE = """
   <div id="search-results"></div>
 
   <div id="footer">
+    <div style="margin-bottom:0.9em;">
+      Enjoying the ride? Tell a friend:
+      <a href="https://ridermusic.vp-fun.com">ridermusic.vp-fun.com</a>
+      &middot; <a href="#" onclick="shareRiderMusic(); return false;">Share</a>
+    </div>
+    <script>
+    function shareRiderMusic() {
+      var url = 'https://ridermusic.vp-fun.com';
+      if (navigator.share) {
+        navigator.share({title: 'RiderMusic Jukebox', text: 'Be the DJ for your ride', url: url}).catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(
+          function () { alert('Link copied!'); },
+          function () { window.prompt('Copy this link:', url); }
+        );
+      } else {
+        window.prompt('Copy this link:', url);
+      }
+    }
+    </script>
     © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
     <a href="https://vp-fun.com">vp-fun.com</a> ·
     From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
@@ -909,8 +929,21 @@ GUEST_PAGE = """
 <button id="back-to-top" aria-label="Back to top">↑</button>
 
 <script>
+let sessionEndCheckInFlight = false;
+async function checkSessionEnded() {
+  if (sessionEndCheckInFlight) return;
+  sessionEndCheckInFlight = true;
+  try {
+    const r = await fetch('/guest/ended');
+    const d = await r.json();
+    if (d.ended) { window.location.reload(); return; }
+  } catch (e) {}
+  sessionEndCheckInFlight = false;
+}
+
 async function refreshPlayback() {
   const res = await fetch('/guest/playback');
+  if (res.status === 401) { checkSessionEnded(); return; }
   const data = await res.json();
   const titleEl = document.getElementById('now-playing-title');
   const artistEl = document.getElementById('now-playing-artist');
@@ -1234,9 +1267,18 @@ refreshQueue();
 
 
 def register_guest_page_route(app):
-    from ridermusic_sessions import require_active_session
+    from ridermusic_sessions import validate_session, COOKIE_NAME
+    from ridermusic_feedback import get_ended_session, render_ended_page
 
     @app.route("/guest")
-    @require_active_session
     def guest_page():
-        return GUEST_PAGE
+        db = get_db()
+        token = request.cookies.get(COOKIE_NAME)
+        if validate_session(db, token):
+            return GUEST_PAGE
+        # Ride over (driver ended it, or it timed out): thank-you screen
+        # with the feedback link instead of a bare 401.
+        ended = get_ended_session(db, token)
+        if ended:
+            return render_ended_page(ended)
+        return jsonify({"error": "session_expired"}), 401
