@@ -189,8 +189,8 @@ NO_RIDE_PAGE = """
 <body>
 <div class="wrap">
   <div class="logo">Rider<span>Music</span> Jukebox</div>
-  <h2>No playlist in progress</h2>
-  <p>Ask your driver to start the ride, then try scanning again.</p>
+  <h2>The jukebox hasn't been started</h2>
+  <p>Ask your driver to start it, then scan again.</p>
 """ + JOIN_FOOTER_HTML + """
 </div>
 </body>

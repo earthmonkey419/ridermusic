@@ -130,7 +130,7 @@ SIGN_PAGE = """
      and doesn't grow wider than a letter-size page. */
   .sign-card.banner .sign-steps {
     font-size: 0.72em;
-    margin-top: 0.02in;
+    margin-top: 0.1em;
   }
   .sign-card.banner .sign-steps li { margin-bottom: 0.15em; }
 
@@ -163,13 +163,24 @@ SIGN_PAGE = """
   .sign-card.portrait.active { display: block; }
   .sign-card.banner.active { display: flex; }
 
+  /* Everything on the card scales from --qr-in (QR size in inches, set
+     by the size picker): the QR prints at exactly that size, and text
+     and spacing are em-based off a font-size proportional to it. */
+  .sign-card { --qr-in: 2.5; }
+  .sign-card img { image-rendering: pixelated; }
+
   .sign-card.portrait {
     background: #ffffff;
     color: #1a1a1a;
     border-radius: 18px;
-    padding: 2em 1.5em;
+    padding: 1.6em 1.4em;
     text-align: center;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    /* text grows slower than the QR so big codes still fit a page */
+    font-size: calc(8pt + var(--qr-in) * 1.5pt);
+    width: calc(var(--qr-in) * 1in + 4em);
+    margin: 0 auto;
+    box-sizing: border-box;
   }
   .sign-logo {
     font-family: 'Sora', sans-serif;
@@ -190,9 +201,8 @@ SIGN_PAGE = """
     margin: 0 0 1em 0;
   }
   .sign-card.portrait img {
-    width: 100%;
-    max-width: 130px;
-    height: auto;
+    width: calc(var(--qr-in) * 1in);
+    height: calc(var(--qr-in) * 1in);
     display: block;
     margin: 0 auto 1em auto;
   }
@@ -214,13 +224,14 @@ SIGN_PAGE = """
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     align-items: center;
-    gap: 0.35in;
-    padding: 0.15in 0.3in;
+    font-size: calc(9pt + var(--qr-in) * 1.5pt);
+    gap: 2.1em;
+    padding: 0.9em 1.8em;
     width: fit-content;
   }
   .sign-card.banner img {
-    height: 2in;
-    width: 2in;
+    height: calc(var(--qr-in) * 1in);
+    width: calc(var(--qr-in) * 1in);
     display: block;
     flex-shrink: 0;
   }
@@ -228,7 +239,7 @@ SIGN_PAGE = """
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 0.12in;
+    gap: 0.7em;
   }
   .sign-card.banner .sign-logo {
     font-size: 1.1em;
@@ -274,8 +285,21 @@ SIGN_PAGE = """
 
   <div class="layout-toggle">
     <button class="toggle-btn active" data-layout="portrait" onclick="setSignLayout('portrait')">Portrait</button>
-    <button class="toggle-btn" data-layout="banner" onclick="setSignLayout('banner')">Banner (2in tall)</button>
+    <button class="toggle-btn" data-layout="banner" onclick="setSignLayout('banner')">Banner</button>
   </div>
+
+  <label class="steps-toggle">
+    QR code size
+    <select id="qr-size" onchange="setQrSize(this.value)"
+            style="padding:0.35em 0.6em;border-radius:8px;border:none;background:var(--panel);color:var(--text);font-family:'Inter',sans-serif;font-size:0.95em;">
+      <option value="1.5">1.5 in</option>
+      <option value="2">2 in</option>
+      <option value="2.5" selected>2.5 in</option>
+      <option value="3">3 in</option>
+      <option value="3.5">3.5 in</option>
+      <option value="4">4 in</option>
+    </select>
+  </label>
 
   <label class="steps-toggle">
     <input type="checkbox" id="steps-toggle" checked
@@ -286,9 +310,9 @@ SIGN_PAGE = """
   <div class="print-tip">
     <strong>Before printing:</strong> in your browser's print dialog, make
     sure "Background graphics" is turned on, or the card will print
-    without its colors. For the banner layout, also set scale to
-    "Actual size" / 100% (not "Fit to page") so the QR code prints at
-    exactly 2 inches.
+    without its colors. Set scale to "Actual size" / 100% (not "Fit to
+    page") so the QR code prints at exactly the size you picked. A 3.5 in
+    or 4 in banner needs landscape orientation.
   </div>
 
   <button id="print-btn" onclick="window.print()">Print / Save as PDF</button>
@@ -323,6 +347,10 @@ SIGN_PAGE = """
   """ + FOOTER_HTML + """
 </div>
 <script>
+function setQrSize(inches) {
+  document.querySelectorAll('.sign-card').forEach(c => c.style.setProperty('--qr-in', inches));
+}
+
 function setSignLayout(layout) {
   document.querySelectorAll('.toggle-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.layout === layout);
