@@ -8,3 +8,4 @@ diagnose_*.py
 timing_check.py
 *.bak
 node_modules/
+*.bak-*
