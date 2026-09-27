@@ -1,5 +1,6 @@
 import time
 import random
+import math
 import os
 import sqlite3
 from flask import request, jsonify, g
@@ -24,7 +25,31 @@ def _track_to_dict(t):
         "artist": getattr(t, "originalTitle", None) or getattr(t, "grandparentTitle", None),
         "album": getattr(t, "parentTitle", None),
         "duration_ms": getattr(t, "duration", None),
+        "popularity": getattr(t, "ratingCount", None) or 0,
     }
+
+
+def _weighted_shuffle(items, weight_fn, seed=None):
+    """Order items so higher-weighted ones land near the front more
+    often, without making the order deterministic. Unlike a plain
+    popularity sort, a fresh call (new seed) still varies which
+    tracks come first and in what sequence -- unlike plain
+    random.shuffle, popularity actually influences the outcome.
+
+    Standard weighted-sampling-without-replacement trick (A-ES): each
+    item gets a random key biased by its weight, u ** (1/w), then
+    items are sorted by that key descending. Weight is log-compressed
+    so one wildly-played track can't dominate every single mix, and a
+    track with no popularity signal at all (weight 0) still gets a
+    real, if less likely, shot via the +1 floor -- it's never
+    excluded outright."""
+    rng = random.Random(seed) if seed is not None else random
+
+    def _key(item):
+        w = math.log1p(max(weight_fn(item) or 0, 0)) + 1.0
+        return rng.random() ** (1.0 / w)
+
+    return sorted(items, key=_key, reverse=True)
 
 
 # Broad mood buckets mapped to keyword substrings, matched against the
@@ -138,6 +163,10 @@ def _cache_evict_stale():
 def _paged_response(all_results, offset, limit):
     page = all_results[offset:offset + limit]
     has_more = (offset + limit) < len(all_results)
+    # popularity is an internal ranking signal (used for mood pills'
+    # weighted shuffle), not something the guest UI needs -- strip it
+    # before it goes out over the wire.
+    page = [{k: v for k, v in d.items() if k != "popularity"} for d in page]
     return jsonify({
         "results": page,
         "has_more": has_more,
@@ -323,6 +352,10 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
     removed from Plex since then, adding it to the queue fails
     gracefully (guest_queue_add already returns "track_not_found") --
     rare in practice, not worth reconciling live for.
+
+    Also pulls rating_count (MusicMind's stored copy of Plex's own
+    ratingCount) as the pool's "popularity" field, matching the
+    live-Plex path -- see the comment at the pool.append() call below.
     """
     keywords = MOOD_BUCKETS.get(bucket_key, [bucket_key])
     excluded = MOOD_BUCKET_EXCLUDED_TAGS.get(bucket_key, set())
@@ -351,7 +384,8 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
 
         placeholders = ",".join("?" * len(matched_keys))
         track_rows = conn.execute(
-            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, "
+            "duration_ms, rating_count "
             f"FROM tracks WHERE rating_key IN ({placeholders})",
             matched_keys,
         ).fetchall()
@@ -370,6 +404,18 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
             "artist": r["artist"],
             "album": r["album"],
             "duration_ms": r["duration_ms"],
+            # rating_count is the same Plex ratingCount signal the
+            # live-Plex path (_genre_bucket_pool) sorts by -- using it
+            # here too means both paths' "popularity" field is the
+            # same metric on the same scale, so a cached pool built
+            # from either path feeds the same weighted shuffle
+            # correctly. MusicMind also has play_count (personal
+            # listening habit, Plex viewCount / Last.fm scrobbles)
+            # which could be blended in or swapped for this if we
+            # decide personal-listening-weighted mood pills are a
+            # better fit than global popularity -- not done here to
+            # keep this change matching existing precedent exactly.
+            "popularity": r["rating_count"] or 0,
         })
 
     random.shuffle(pool)
@@ -435,15 +481,21 @@ def register_guest_routes(app):
             if all_results:  # never cache an empty pool -- it would stick for an hour
                 _cache_set(cache_key, all_results, ttl=_MOOD_CACHE_TTL)
 
-        # Page through a seeded shuffle of the cached pool: a fresh tap
-        # (no seed) gets a new order; "load more" sends the same seed
-        # back, so scrolling never repeats or skips a track.
+        # Page through a seeded, popularity-weighted shuffle of the
+        # cached pool: a fresh tap (no seed) gets a new mix, biased
+        # toward more-popular tracks near the top; "load more" sends
+        # the same seed back, so scrolling never repeats or skips a
+        # track and stays consistent with the mix that was shown.
         seed = request.args.get("seed", type=int)
         if seed is None:
             seed = random.randint(0, 2**31 - 1)
-        shuffled = list(all_results)
-        random.Random(seed).shuffle(shuffled)
+        shuffled = _weighted_shuffle(
+            list(all_results), lambda d: d.get("popularity", 0), seed=seed
+        )
         page = shuffled[offset:offset + limit]
+        # popularity is an internal ranking signal, not something the
+        # guest UI needs -- strip it before it goes out over the wire.
+        page = [{k: v for k, v in d.items() if k != "popularity"} for d in page]
         return jsonify({
             "results": page,
             "has_more": (offset + limit) < len(shuffled),
