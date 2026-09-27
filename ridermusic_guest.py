@@ -21,7 +21,7 @@ def _track_to_dict(t):
     return {
         "rating_key": t.ratingKey,
         "title": t.title,
-        "artist": getattr(t, "grandparentTitle", None),
+        "artist": getattr(t, "originalTitle", None) or getattr(t, "grandparentTitle", None),
         "album": getattr(t, "parentTitle", None),
         "duration_ms": getattr(t, "duration", None),
     }
@@ -200,12 +200,12 @@ def _musicmind_search(q, limit=500):
     try:
         conn.row_factory = sqlite3.Row
         artist_rows = conn.execute(
-            "SELECT rating_key, title, artist, album, duration_ms "
-            "FROM tracks WHERE LOWER(artist) LIKE ? LIMIT ?",
+            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+            "FROM tracks WHERE LOWER(COALESCE(real_artist, artist)) LIKE ? LIMIT ?",
             (q_like, limit),
         ).fetchall()
         title_rows = conn.execute(
-            "SELECT rating_key, title, artist, album, duration_ms "
+            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
             "FROM tracks WHERE LOWER(title) LIKE ? LIMIT ?",
             (q_like, limit),
         ).fetchall()
@@ -351,7 +351,7 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
 
         placeholders = ",".join("?" * len(matched_keys))
         track_rows = conn.execute(
-            "SELECT rating_key, title, artist, album, duration_ms "
+            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
             f"FROM tracks WHERE rating_key IN ({placeholders})",
             matched_keys,
         ).fetchall()
@@ -482,7 +482,8 @@ def register_guest_routes(app):
         db.execute(
             "INSERT INTO queue (session_id, rating_key, title, artist, "
             "duration_ms, added_at, played) VALUES (?, ?, ?, ?, ?, ?, 0)",
-            (session_id, track.ratingKey, track.title, track.grandparentTitle,
+            (session_id, track.ratingKey, track.title,
+             track.originalTitle or track.grandparentTitle,
              track.duration, time.time())
         )
         db.commit()
@@ -492,7 +493,7 @@ def register_guest_routes(app):
         if not state["current_queue_id"]:
             advance_to_next(db, session_id, mark_current_played=False)
 
-        return jsonify({"added": True, "title": track.title, "artist": track.grandparentTitle})
+        return jsonify({"added": True, "title": track.title, "artist": track.originalTitle or track.grandparentTitle})
 
     @app.route("/guest/queue")
     @require_active_session
