@@ -9,3 +9,4 @@ timing_check.py
 *.bak
 node_modules/
 *.bak-*
+*.bak-*
