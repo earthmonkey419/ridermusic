@@ -281,6 +281,9 @@ ADMIN_DASHBOARD_PAGE = """
     margin-bottom: 0.1em;
   }
   #artist { color: var(--text-muted); margin-bottom: 0.8em; }
+  #cover-art { display: block; width: 100%; max-width: 240px; aspect-ratio: 1 / 1;
+               object-fit: cover; border-radius: 12px; margin: 0 auto 0.9em;
+               background: rgba(255,255,255,0.08); }
   audio { width: 100%; margin-bottom: 0.6em; }
   #play-status {
     display: inline-block;
@@ -350,6 +353,7 @@ ADMIN_DASHBOARD_PAGE = """
   </div>
 
   <div class="card">
+    <img id="cover-art" alt="" style="display:none">
     <div id="track">Nothing playing</div>
     <div id="artist"></div>
     <audio id="player" controls></audio>
@@ -386,6 +390,7 @@ async function pollPlayer() {
   const track = document.getElementById('track');
   const artist = document.getElementById('artist');
   const status = document.getElementById('play-status');
+  const cover = document.getElementById('cover-art');
 
   if (!data.active || !data.now_playing) {
     track.textContent = 'Nothing playing';
@@ -393,6 +398,7 @@ async function pollPlayer() {
     status.textContent = data.active ? 'Queue empty' : 'No active session';
     audio.pause();
     currentRatingKey = null;
+    cover.style.display = 'none';
     clearMediaSession();
     return;
   }
@@ -408,6 +414,10 @@ async function pollPlayer() {
   if (data.now_playing.rating_key !== currentRatingKey) {
     currentRatingKey = data.now_playing.rating_key;
     audio.src = '/player/stream/' + currentRatingKey;
+    // Same URL the lock-screen artwork uses, so it's already cached.
+    cover.onerror = () => { cover.style.display = 'none'; };
+    cover.style.display = '';
+    cover.src = '/player/art/' + currentRatingKey;
     setMediaMetadata(data.now_playing);
   }
 
