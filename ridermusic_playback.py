@@ -42,7 +42,7 @@ def advance_to_next(db, session_id, mark_current_played=True):
 
     next_row = db.execute(
         "SELECT id FROM queue WHERE session_id = ? AND played = 0 "
-        "ORDER BY added_at ASC LIMIT 1",
+        "ORDER BY (COALESCE(source, 'guest') = 'radio') ASC, added_at ASC LIMIT 1",
         (session_id,)
     ).fetchone()
     next_id = next_row["id"] if next_row else None
@@ -53,10 +53,23 @@ def advance_to_next(db, session_id, mark_current_played=True):
         (next_id, 1 if next_id else 0, time.time(), session_id)
     )
     db.commit()
+
+    # Keep a few tracks waiting. Background thread; never allowed to
+    # interfere with playback.
+    try:
+        from ridermusic_radio import schedule_top_up
+        schedule_top_up(session_id)
+    except Exception:
+        pass
     return next_id
 
 
 def register_playback_routes(app):
+    try:
+        from ridermusic_radio import ensure_schema
+        ensure_schema()
+    except Exception:
+        pass
 
     @app.route("/guest/playback")
     @require_active_session
@@ -68,14 +81,17 @@ def register_playback_routes(app):
         now_playing = None
         if state["current_queue_id"]:
             row = db.execute(
-                "SELECT title, artist, duration_ms FROM queue WHERE id = ?",
+                "SELECT rating_key, title, artist, duration_ms, "
+                "COALESCE(source, 'guest') AS source FROM queue WHERE id = ?",
                 (state["current_queue_id"],)
             ).fetchone()
             if row:
                 now_playing = {
+                    "rating_key": row["rating_key"],
                     "title": row["title"],
                     "artist": row["artist"],
                     "duration_ms": row["duration_ms"],
+                    "source": row["source"],
                 }
 
         return jsonify({

@@ -10,4 +10,8 @@ ADMIN_SESSION_DAYS = 90
 
 MAX_QUEUE_ADDS_PER_SESSION = 20
 
+# Radio: when the queue runs low, add tracks similar to what riders picked.
+RADIO_AUTOFILL = True
+RADIO_LOOKAHEAD = 2   # tracks to keep waiting
+
 COOKIE_SECURE = True

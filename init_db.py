@@ -96,3 +96,12 @@ except sqlite3.OperationalError as e:
     print(f"feedback_token column already exists or other issue: {e}")
 conn4.close()
 print("feedback table ready")
+
+conn5 = sqlite3.connect(DB_PATH)
+try:
+    conn5.execute("ALTER TABLE queue ADD COLUMN source TEXT DEFAULT 'guest'")
+    conn5.commit()
+    print("added queue.source column")
+except sqlite3.OperationalError as e:
+    print(f"queue.source column already exists or other issue: {e}")
+conn5.close()

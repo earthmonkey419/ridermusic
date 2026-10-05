@@ -1,0 +1,75 @@
+diff --git a/ridermusic_guest.py b/ridermusic_guest.py
+index ee7e090..33c9ff0 100644
+--- a/ridermusic_guest.py
++++ b/ridermusic_guest.py
+@@ -18,6 +18,18 @@ from ridermusic_playback import get_playback_state, advance_to_next
+ MUSICMIND_DB_PATH = getattr(_config, "MUSICMIND_DB_PATH", None)
+ 
+ 
++def _normalize_for_match(s):
++    """Strip periods before comparing artist names. A period-vs-no-period
++    spelling difference (e.g. 'Mary J Blige' vs 'Mary J. Blige') is a
++    common Plex tagging inconsistency -- some tracks/albums get tagged
++    one way, some the other, as if they were different artists. A
++    plain substring match only ever catches whichever spelling was
++    typed; stripping periods from both sides makes the two spellings
++    equivalent for matching purposes without touching what's actually
++    displayed."""
++    return (s or "").replace(".", "").lower()
++
++
+ def _track_to_dict(t):
+     return {
+         "rating_key": t.ratingKey,
+@@ -177,13 +189,16 @@ def _paged_response(all_results, offset, limit):
+ def _build_search_results(section, plex, q):
+     """Same three-layer literal-then-fuzzy search as before, just with
+     wider candidate limits so there's enough to page through."""
+-    q_lower = q.lower()
++    q_norm = _normalize_for_match(q)
+     results = []
+     seen_keys = set()
+ 
+     # Layer 1: literal artist name match -> that artist's own tracks.
++    # Normalized (period-stripped) on both sides so 'Mary J Blige' and
++    # 'Mary J. Blige' match the same query regardless of which
++    # spelling this particular artist tag happens to use.
+     all_artists = section.searchArtists()
+-    matching_artists = [a for a in all_artists if q_lower in a.title.lower()]
++    matching_artists = [a for a in all_artists if q_norm in _normalize_for_match(a.title)]
+     for artist in matching_artists[:8]:
+         for t in artist.tracks()[:20]:
+             if t.ratingKey not in seen_keys:
+@@ -223,20 +238,28 @@ def _musicmind_search(q, limit=500):
+     that's Plex's hub search specifically, MusicMind has no equivalent,
+     so the dispatcher below falls back to live Plex fuzzy search only
+     if this returns literally nothing.
++
++    Artist matching strips periods on both sides of the comparison
++    (see _normalize_for_match) so a spelling split like 'Mary J Blige'
++    vs 'Mary J. Blige' resolves to one artist instead of two. Title
++    matching is left as a plain substring match -- not the reported
++    problem, and title text has its own, unrelated punctuation (e.g.
++    "Vol. 2") that doesn't need this treatment.
+     """
+-    q_like = f"%{q.lower()}%"
++    q_like_artist = f"%{_normalize_for_match(q)}%"
++    q_like_title = f"%{q.lower()}%"
+     conn = _musicmind_conn()
+     try:
+         conn.row_factory = sqlite3.Row
+         artist_rows = conn.execute(
+             "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+-            "FROM tracks WHERE LOWER(COALESCE(real_artist, artist)) LIKE ? LIMIT ?",
+-            (q_like, limit),
++            "FROM tracks WHERE REPLACE(LOWER(COALESCE(real_artist, artist)), '.', '') LIKE ? LIMIT ?",
++            (q_like_artist, limit),
+         ).fetchall()
+         title_rows = conn.execute(
+             "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+             "FROM tracks WHERE LOWER(title) LIKE ? LIMIT ?",
+-            (q_like, limit),
++            (q_like_title, limit),
+         ).fetchall()
+     finally:
+         conn.close()

@@ -39,6 +39,10 @@ def add_no_cache_headers(response):
     # real, serious bug, not just a staleness annoyance.
     # Exception: static images (icons, logo) are the same for everyone,
     # and iOS's lock-screen artwork loader won't show no-store images.
+    if request.path.startswith("/guest/art/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "private, max-age=86400"
+        response.headers.pop("Pragma", None)
+        return response
     if request.path.startswith("/player/art/") or (
         request.path.startswith("/static/") and request.path.rsplit(".", 1)[-1].lower() in ("png", "jpg", "jpeg", "ico")
     ):

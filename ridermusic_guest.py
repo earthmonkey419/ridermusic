@@ -538,7 +538,8 @@ def register_guest_routes(app):
         session_id = g.session["session_id"]
 
         current_count = db.execute(
-            "SELECT COUNT(*) AS c FROM queue WHERE session_id = ?",
+            "SELECT COUNT(*) AS c FROM queue WHERE session_id = ? "
+            "AND COALESCE(source, 'guest') != 'radio'",
             (session_id,)
         ).fetchone()["c"]
 
@@ -553,6 +554,22 @@ def register_guest_routes(app):
 
         if track.type != "track":
             return jsonify({"error": "not_a_music_track"}), 403
+
+        # If radio already lined this exact track up, the rider's add
+        # promotes it (same slot logic as any rider pick, counts toward
+        # their cap) instead of queueing a duplicate.
+        cur_id = get_playback_state(db, session_id)["current_queue_id"]
+        promoted = db.execute(
+            "UPDATE queue SET source = 'guest', added_at = ? "
+            "WHERE session_id = ? AND rating_key = ? AND played = 0 "
+            "AND source = 'radio' AND id != COALESCE(?, -1)",
+            (time.time(), session_id, track.ratingKey, cur_id)
+        ).rowcount
+        if promoted:
+            db.commit()
+            log_action(db, session_id, "queue_add", detail=track.title)
+            return jsonify({"added": True, "title": track.title,
+                            "artist": track.originalTitle or track.grandparentTitle})
 
         db.execute(
             "INSERT INTO queue (session_id, rating_key, title, artist, "
@@ -584,15 +601,18 @@ def register_guest_routes(app):
         current_id = state["current_queue_id"]
 
         rows = db.execute(
-            "SELECT rating_key, title, artist, duration_ms, added_at FROM queue "
+            "SELECT id, rating_key, title, artist, duration_ms, added_at, "
+            "COALESCE(source, 'guest') AS source FROM queue "
             "WHERE session_id = ? AND played = 0 AND id != COALESCE(?, -1) "
-            "ORDER BY added_at ASC",
+            "ORDER BY (COALESCE(source, 'guest') = 'radio') ASC, added_at ASC",
             (session_id, current_id)
         ).fetchall()
 
         return jsonify({
             "queue": [
                 {
+                    "id": r["id"],
+                    "source": r["source"],
                     "rating_key": r["rating_key"],
                     "title": r["title"],
                     "artist": r["artist"],
@@ -601,6 +621,91 @@ def register_guest_routes(app):
                 for r in rows
             ]
         })
+
+    @app.route("/guest/queue/remove", methods=["POST"])
+    @require_active_session
+    def guest_queue_remove():
+        data = request.get_json(silent=True) or {}
+        try:
+            queue_id = int(data.get("id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "id required"}), 400
+
+        db = get_db()
+        session_id = g.session["session_id"]
+
+        # Never remove the track that's playing -- that's Skip's job.
+        state = get_playback_state(db, session_id)
+        if state["current_queue_id"] == queue_id:
+            return jsonify({"error": "now_playing"}), 409
+
+        row = db.execute(
+            "SELECT title FROM queue WHERE id = ? AND session_id = ? AND played = 0",
+            (queue_id, session_id)
+        ).fetchone()
+        if not row:
+            return jsonify({"removed": False, "error": "not_in_queue"}), 404
+
+        # played = 2 means "removed by a guest". Not a DELETE, so the row
+        # still counts toward MAX_QUEUE_ADDS_PER_SESSION (add/remove can't
+        # be used to dodge the cap) and Back/previous never sees it
+        # (that only looks at played = 1).
+        db.execute(
+            "UPDATE queue SET played = 2 WHERE id = ? AND session_id = ? AND played = 0",
+            (queue_id, session_id)
+        )
+        db.commit()
+        log_action(db, session_id, "queue_remove", detail=row["title"])
+        try:
+            from ridermusic_radio import schedule_top_up
+            schedule_top_up(session_id)
+        except Exception:
+            pass
+        return jsonify({"removed": True})
+
+    _ART_CACHE = {}   # rating_key -> (bytes, content_type), or None = no art
+
+    @app.route("/guest/art/<int:rating_key>")
+    @require_active_session
+    def guest_art(rating_key):
+        # Small album-art thumbnail for the guest portal. Needs an active
+        # guest session; the Plex token stays server-side.
+        import requests
+        from urllib.parse import quote
+        from flask import Response
+
+        if rating_key in _ART_CACHE:
+            cached = _ART_CACHE[rating_key]
+            if cached is None:
+                return ("", 404)
+        else:
+            try:
+                track = get_plex().fetchItem(rating_key)
+                if track.type != "track":
+                    return ("", 404)
+                thumb = track.parentThumb or track.thumb or track.grandparentThumb
+            except Exception:
+                return ("", 404)   # transient: don't cache the miss
+
+            cached = None
+            if thumb:
+                url = (f"{_config.PLEX_URL}/photo/:/transcode?width=160&height=160"
+                       f"&minSize=1&upscale=1&url={quote(thumb, safe='')}"
+                       f"&X-Plex-Token={_config.PLEX_TOKEN}")
+                try:
+                    up = requests.get(url, timeout=6)
+                except Exception:
+                    return ("", 404)   # transient: don't cache the miss
+                if up.status_code == 200 and up.content:
+                    cached = (up.content, up.headers.get("Content-Type", "image/jpeg"))
+
+            if len(_ART_CACHE) >= 400:
+                _ART_CACHE.pop(next(iter(_ART_CACHE)))
+            _ART_CACHE[rating_key] = cached
+            if cached is None:
+                return ("", 404)
+
+        return Response(cached[0], content_type=cached[1])
 
 
 GUEST_PAGE = """
@@ -854,6 +959,20 @@ GUEST_PAGE = """
   .add-btn:disabled { cursor: default; opacity: 0.85; }
   .add-btn.added { background: var(--accent); color: #fff; }
   .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
+  .art { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex: none;
+         background: rgba(255,255,255,0.08); margin-right: 0.7em; }
+  .art-lg { width: 72px; height: 72px; border-radius: 8px; margin-right: 0.9em; }
+  .np-row { display: flex; align-items: center; }
+  .np-text { flex: 1; min-width: 0; }
+  .result-info { flex: 1; min-width: 0; margin-right: 0.6em; }
+  .queue-main { display: flex; align-items: center; flex: 1; min-width: 0; }
+  .queue-text { min-width: 0; }
+  .q-del { background: none; border: none; color: var(--text-muted); font-size: 1.1em;
+           padding: 0.35em 0.55em; cursor: pointer; flex: none; }
+  .q-del:disabled { opacity: 0.4; cursor: default; }
+  .radio-tag { font-size: 0.65em; font-weight: 600; text-transform: uppercase;
+               letter-spacing: 0.06em; color: var(--accent); background: rgba(68,161,164,0.2);
+               padding: 0.15em 0.5em; border-radius: 999px; white-space: nowrap; }
   .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
   .end-hint { text-align: center; font-size: 0.85em; }
 
@@ -957,9 +1076,14 @@ GUEST_PAGE = """
 
   <h3>Now Playing</h3>
   <div class="card">
-    <div id="now-playing-title">Nothing yet</div>
-    <div id="now-playing-artist" class="empty-hint" style="display:none"></div>
-    <div id="now-playing-empty">Search above and add a song to get started</div>
+    <div class="np-row">
+      <img id="now-playing-art" class="art art-lg" alt="" style="display:none">
+      <div class="np-text">
+        <div id="now-playing-title">Nothing yet</div>
+        <div id="now-playing-artist" class="empty-hint" style="display:none"></div>
+        <div id="now-playing-empty">Search above and add a song to get started</div>
+      </div>
+    </div>
     <div class="controls" id="controls" style="display:none">
       <button class="ctrl-btn" id="play-pause-btn">⏯</button>
       <button class="ctrl-btn secondary" id="skip-btn">⏭</button>
@@ -997,7 +1121,7 @@ GUEST_PAGE = """
     <a href="https://vp-fun.com">vp-fun.com</a> ·
     From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
     <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
-    Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+    Not affiliated with or endorsed by Plex. Plex is a trademark of <a href="https://www.plex.tv/your-media/">Plex, Inc.</a>
   </div>
 
 </div>
@@ -1025,14 +1149,25 @@ async function refreshPlayback() {
   const artistEl = document.getElementById('now-playing-artist');
   const emptyEl = document.getElementById('now-playing-empty');
   const controls = document.getElementById('controls');
+  const artEl = document.getElementById('now-playing-art');
 
   if (data.now_playing) {
+    const rk = String(data.now_playing.rating_key);
+    if (artEl.dataset.rk !== rk) {
+      artEl.dataset.rk = rk;
+      artEl.style.display = '';
+      artEl.onerror = () => { artEl.style.display = 'none'; };
+      artEl.src = '/guest/art/' + encodeURIComponent(rk);
+    }
     titleEl.textContent = (data.is_playing ? '▶ ' : '⏸ ') + data.now_playing.title;
-    artistEl.textContent = data.now_playing.artist;
+    artistEl.textContent = data.now_playing.artist +
+      (data.now_playing.source === 'radio' ? ' · Radio pick' : '');
     artistEl.style.display = 'block';
     emptyEl.style.display = 'none';
     controls.style.display = 'flex';
   } else {
+    artEl.style.display = 'none';
+    delete artEl.dataset.rk;
     titleEl.textContent = 'Nothing yet';
     artistEl.style.display = 'none';
     emptyEl.style.display = 'block';
@@ -1053,8 +1188,47 @@ async function refreshQueue() {
   data.queue.forEach((t, i) => {
     const div = document.createElement('div');
     div.className = 'queue-row';
-    div.innerHTML = '<span><span class="queue-idx">' + (i + 1) + '</span>' +
-      t.title + ' — ' + t.artist + '</span>';
+
+    const main = document.createElement('div');
+    main.className = 'queue-main';
+    const idx = document.createElement('span');
+    idx.className = 'queue-idx';
+    idx.textContent = String(i + 1);
+    const img = document.createElement('img');
+    img.className = 'art';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => { img.style.display = 'none'; };
+    img.src = '/guest/art/' + encodeURIComponent(t.rating_key);
+    const text = document.createElement('span');
+    text.className = 'queue-text';
+    text.textContent = t.title + ' — ' + t.artist;
+    if (t.source === 'radio') {
+      const tag = document.createElement('span');
+      tag.className = 'radio-tag';
+      tag.textContent = 'Radio';
+      text.append(' ', tag);
+    }
+    main.append(idx, img, text);
+
+    const del = document.createElement('button');
+    del.className = 'q-del';
+    del.type = 'button';
+    del.setAttribute('aria-label', 'Remove from queue');
+    del.textContent = '✕';
+    del.addEventListener('click', async () => {
+      del.disabled = true;
+      try {
+        await fetch('/guest/queue/remove', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id: t.id})
+        });
+      } catch (e) {}
+      refreshQueue();
+    });
+
+    div.append(main, del);
     el.appendChild(div);
   });
 }
@@ -1073,7 +1247,9 @@ let resultsObserver = null;
 function addTrackButton(t) {
   const div = document.createElement('div');
   div.className = 'result-row';
-  div.innerHTML = '<div class="result-info"><div class="t">' + t.title +
+  div.innerHTML = '<img class="art" loading="lazy" alt="" src="/guest/art/' +
+    encodeURIComponent(t.rating_key) + '" onerror="this.remove()">' +
+    '<div class="result-info"><div class="t">' + t.title +
     '</div><div class="a">' + t.artist + ' · ' + t.album + '</div></div>';
   const btn = document.createElement('button');
   btn.className = 'add-btn';

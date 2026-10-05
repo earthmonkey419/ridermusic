@@ -165,7 +165,7 @@ JOIN_FOOTER_HTML = """
   <a href="https://vp-fun.com">vp-fun.com</a> ·
   From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
   <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
-  Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+  Not affiliated with or endorsed by Plex. Plex is a trademark of <a href="https://www.plex.tv/your-media/">Plex, Inc.</a>
 </div>
 """
 
