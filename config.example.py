@@ -1,4 +1,5 @@
 PLEX_URL   = "http://YOUR_PLEX_IP:32400"
+# Create a dedicated token with:  python3 make_plex_token.py --write
 PLEX_TOKEN = "YOUR_PLEX_TOKEN"
 MUSIC_LIB  = "Music"
 

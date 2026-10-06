@@ -73,11 +73,12 @@ def register_player_routes(app):
     @app.route("/player/stream/<int:rating_key>")
     @require_admin_auth
     def player_stream(rating_key):
-        plex = get_plex()
         try:
+            plex = get_plex()
             track = plex.fetchItem(rating_key)
         except Exception:
-            abort(404)
+            from ridermusic_plexhealth import is_down
+            abort(503 if is_down() else 404)
 
         part = track.media[0].parts[0]
         real_url = f"{PLEX_URL}{part.key}?X-Plex-Token={PLEX_TOKEN}"

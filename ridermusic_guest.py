@@ -546,10 +546,13 @@ def register_guest_routes(app):
         if current_count >= MAX_QUEUE_ADDS_PER_SESSION:
             return jsonify({"error": "queue_limit_reached"}), 429
 
-        plex = get_plex()
         try:
+            plex = get_plex()
             track = plex.fetchItem(int(rating_key))
         except Exception:
+            from ridermusic_plexhealth import is_down
+            if is_down():
+                return jsonify({"error": "music_unavailable"}), 503
             return jsonify({"error": "track_not_found"}), 404
 
         if track.type != "track":
@@ -1264,7 +1267,11 @@ function addTrackButton(t) {
     const result = await r.json();
     if (result.error) {
       btn.disabled = false;
-      alert(result.error === 'queue_limit_reached' ? 'Queue is full!' : result.error);
+      alert({
+        queue_limit_reached: "Queue is full!",
+        music_unavailable: "The music library is temporarily unavailable. Please let your driver know.",
+        track_not_found: "That song couldn't be found."
+      }[result.error] || result.error);
     } else {
       btn.textContent = 'Added';
       btn.classList.add('added');
@@ -1387,12 +1394,22 @@ async function loadResults(isFirstPage) {
   } catch (e) {
     data = { results: [], has_more: false, next_offset: currentOffset };
   }
+  const musicUnavailable = !!(data && data.error === 'music_unavailable');
+  if (!data || !Array.isArray(data.results)) {
+    data = { results: [], has_more: false, next_offset: currentOffset };
+  }
 
   if (mySeq !== resultsRequestSeq) return;  // superseded by a newer request
 
   if (isFirstPage) {
     document.getElementById('search-results').innerHTML = '';
     if (currentQueryType === 'mood') renderMoodHeader();
+    if (musicUnavailable) {
+      const m = document.createElement('div');
+      m.className = 'empty-hint';
+      m.textContent = 'The music library is temporarily unavailable. Please let your driver know.';
+      document.getElementById('search-results').appendChild(m);
+    }
   } else {
     removeLoadingMore();
   }

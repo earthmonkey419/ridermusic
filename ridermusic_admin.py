@@ -196,10 +196,11 @@ def register_admin_routes(app):
     @app.route("/admin/status")
     @require_admin_auth
     def admin_status():
+        from ridermusic_plexhealth import check as plex_check
         db = get_db()
         active = get_active_session(db)
         if not active:
-            return jsonify({"active": False})
+            return jsonify({"active": False, "plex": plex_check()})
 
         now = time.time()
         remaining = max(0, active["expires_at"] - now)
@@ -211,6 +212,7 @@ def register_admin_routes(app):
 
         return jsonify({
             "active": True,
+            "plex": plex_check(),
             "session_id": active["session_id"],
             "device_count": active["device_count"],
             "rejoin_code": active["rejoin_code"],
@@ -281,6 +283,10 @@ ADMIN_DASHBOARD_PAGE = """
     margin-bottom: 0.1em;
   }
   #artist { color: var(--text-muted); margin-bottom: 0.8em; }
+  .plex-banner { background: #5a1f1f; border: 1px solid #c0392b; color: #ffd9d4;
+                 border-radius: 10px; padding: 0.8em 1em; margin-bottom: 1em; font-size: 0.9em; }
+  .plex-banner strong { display: block; margin-bottom: 0.3em; }
+  .plex-banner code { background: rgba(0,0,0,0.3); padding: 0.1em 0.4em; border-radius: 4px; }
   #cover-art { display: block; width: 100%; max-width: 240px; aspect-ratio: 1 / 1;
                object-fit: cover; border-radius: 12px; margin: 0 auto 0.9em;
                background: rgba(255,255,255,0.08); }
@@ -352,6 +358,7 @@ ADMIN_DASHBOARD_PAGE = """
     <a href="/admin/guide" style="color:var(--accent); font-size:0.6em; border:1px solid var(--accent); border-radius:50%; width:1.6em; height:1.6em; display:flex; align-items:center; justify-content:center; text-decoration:none; flex-shrink:0;">?</a>
   </div>
 
+  <div id="plex-banner" class="plex-banner" style="display:none"></div>
   <div class="card">
     <img id="cover-art" alt="" style="display:none">
     <div id="track">Nothing playing</div>
@@ -552,9 +559,33 @@ if (hasMediaSession) {
   });
 }
 
+function showPlexBanner(p) {
+  const el = document.getElementById('plex-banner');
+  if (!p || p.state === 'ok' || p.state === 'unknown') { el.style.display = 'none'; return; }
+  el.innerHTML = '';
+  const head = document.createElement('strong');
+  const body = document.createElement('div');
+  if (p.state === 'unauthorized') {
+    head.textContent = 'Plex rejected RiderMusic\u2019s access token';
+    body.append('No music will play until it is replaced. In the RiderMusic folder run ');
+    const c = document.createElement('code');
+    c.textContent = 'python3 make_plex_token.py --write';
+    body.append(c, ' and restart RiderMusic.');
+  } else if (p.state === 'unreachable') {
+    head.textContent = "RiderMusic can't reach Plex";
+    body.textContent = 'Check that Plex is running and that PLEX_URL in config.py is right. ' + (p.detail || '');
+  } else {
+    head.textContent = 'Plex is having a problem';
+    body.textContent = p.detail || '';
+  }
+  el.append(head, body);
+  el.style.display = 'block';
+}
+
 async function pollStatus() {
   const res = await fetch('/admin/status');
   const data = await res.json();
+  showPlexBanner(data.plex);
   const statusEl = document.getElementById('status');
   const endBtn = document.getElementById('end-btn');
   const startBtn = document.getElementById('start-btn');
