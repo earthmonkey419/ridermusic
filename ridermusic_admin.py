@@ -389,7 +389,7 @@ ADMIN_DASHBOARD_PAGE = """
 
 <script>
 </script>
-<script src="/static/js/gapless.js?v=2"></script>
+<script src="/static/js/gapless.js?v=3"></script>
 <script>
 let currentRatingKey = null;
 let shownRatingKey = null;
