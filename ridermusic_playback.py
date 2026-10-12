@@ -282,11 +282,23 @@ def register_player_state_route(app):
                     "duration_ms": row["duration_ms"],
                 }
 
+        up_next = None
+        if now_playing:
+            nxt = db.execute(
+                "SELECT rating_key FROM queue WHERE session_id = ? AND played = 0 "
+                "AND id != ? "
+                "ORDER BY (COALESCE(source, 'guest') = 'radio') ASC, added_at ASC LIMIT 1",
+                (active["session_id"], state["current_queue_id"])
+            ).fetchone()
+            if nxt:
+                up_next = nxt["rating_key"]
+
         return jsonify({
             "active": True,
             "is_playing": bool(state["is_playing"]),
             "volume": state["volume"],
             "now_playing": now_playing,
+            "up_next": up_next,
         })
 
 

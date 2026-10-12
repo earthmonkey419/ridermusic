@@ -388,12 +388,36 @@ ADMIN_DASHBOARD_PAGE = """
 </div>
 
 <script>
+</script>
+<script src="/static/js/gapless.js?v=2"></script>
+<script>
 let currentRatingKey = null;
+let shownRatingKey = null;
+let upNextKey = null;
+let skipInFlight = false;
+let pollSeq = 0, minSeq = 0;
+const gapless = MLGapless.create({
+  audio: document.getElementById('player'),
+  urlFor: ref => '/player/stream/' + ref,
+  nextRef: () => upNextKey,
+  onSwap: el => {
+    const old = document.getElementById('player');
+    if (old && old !== el) {
+      old.removeAttribute('id');
+      el.id = 'player';
+      el.controls = true;
+      old.replaceWith(el);
+    }
+  },
+  onBlocked: () => {},
+});
 
 async function pollPlayer() {
+  const seq = ++pollSeq;
   const res = await fetch('/player/state');
   const data = await res.json();
-  const audio = document.getElementById('player');
+  if (skipInFlight || seq < minSeq) return;
+  let audio = gapless.active();
   const track = document.getElementById('track');
   const artist = document.getElementById('artist');
   const status = document.getElementById('play-status');
@@ -405,6 +429,8 @@ async function pollPlayer() {
     status.textContent = data.active ? 'Queue empty' : 'No active session';
     audio.pause();
     currentRatingKey = null;
+    shownRatingKey = null;
+    upNextKey = null;
     cover.style.display = 'none';
     clearMediaSession();
     return;
@@ -420,13 +446,23 @@ async function pollPlayer() {
 
   if (data.now_playing.rating_key !== currentRatingKey) {
     currentRatingKey = data.now_playing.rating_key;
-    audio.src = '/player/stream/' + currentRatingKey;
+    if (data.is_playing) {
+      gapless.start(currentRatingKey);
+    } else {
+      audio.src = '/player/stream/' + currentRatingKey;
+    }
+    audio = gapless.active();
+  }
+  if (data.now_playing.rating_key !== shownRatingKey) {
+    shownRatingKey = data.now_playing.rating_key;
     // Same URL the lock-screen artwork uses, so it's already cached.
     cover.onerror = () => { cover.style.display = 'none'; };
     cover.style.display = '';
     cover.src = '/player/art/' + currentRatingKey;
     setMediaMetadata(data.now_playing);
   }
+  upNextKey = data.up_next || null;
+  gapless.refresh();
 
   if (data.is_playing && audio.paused) {
     audio.play().catch(() => {});
@@ -478,11 +514,16 @@ async function driverSetPlaying(action) {
   pollPlayer();
 }
 
-document.getElementById('player').addEventListener('ended', async () => {
-  // Advance and load the next track right here rather than waiting for
-  // the 2s poll -- backgrounded tabs throttle timers, and a gap here is
-  // where playback would stall with the screen off.
-  await fetch('/player/next', { method: 'POST' });
+gapless.on('ended', async () => {
+  if (upNextKey) {
+    currentRatingKey = upNextKey;
+    upNextKey = null;
+    gapless.start(currentRatingKey);
+  }
+  skipInFlight = true;
+  try { await fetch('/player/next', { method: 'POST' }); } catch (e) {}
+  skipInFlight = false;
+  minSeq = pollSeq + 1;
   pollPlayer();
 });
 
@@ -536,14 +577,13 @@ function updatePositionState() {
 }
 
 if (hasMediaSession) {
-  const audio = document.getElementById('player');
-  audio.addEventListener('play', () => { navigator.mediaSession.playbackState = 'playing'; });
+  gapless.on('play', () => { navigator.mediaSession.playbackState = 'playing'; });
   // iOS can reset Now Playing info when a new src loads; setting it
   // again once audio is actually playing makes it stick.
-  audio.addEventListener('playing', () => { if (lastMediaNp) setMediaMetadata(lastMediaNp); });
-  audio.addEventListener('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
-  audio.addEventListener('loadedmetadata', updatePositionState);
-  audio.addEventListener('seeked', updatePositionState);
+  gapless.on('playing', () => { if (lastMediaNp) setMediaMetadata(lastMediaNp); });
+  gapless.on('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
+  gapless.on('loadedmetadata', updatePositionState);
+  gapless.on('seeked', updatePositionState);
 
   const handlers = [
     ['play', () => driverSetPlaying('play')],
@@ -551,7 +591,7 @@ if (hasMediaSession) {
     ['nexttrack', () => driverNext()],
     ['previoustrack', () => driverPrevious(true)],
     ['seekto', (d) => {
-      if (typeof d.seekTime === 'number') { audio.currentTime = d.seekTime; updatePositionState(); }
+      if (typeof d.seekTime === 'number') { gapless.active().currentTime = d.seekTime; updatePositionState(); }
     }],
   ];
   handlers.forEach(([action, fn]) => {
