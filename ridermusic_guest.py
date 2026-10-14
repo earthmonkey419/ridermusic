@@ -90,6 +90,7 @@ MOOD_BUCKETS = {
         "carnatic", "hindustani", "tabla", "tamil", "ghazal",
     ],
     "hindu devotional": ["devotional", "hindu", "bhajan", "qawwali"],
+    "gospel": ["gospel", "spirituals", "hymn", "worship", "contemporary christian"],
 }
 
 # Some buckets need a keyword to cast a wide net (e.g. "country" has to
@@ -119,6 +120,12 @@ MOOD_BUCKET_EXCLUDED_TAGS = {
     "hindu devotional": {
         "hindustani",
         "hindustani classical",
+    },
+    "gospel": {
+        "gospel-influenced r&b",
+        "gospel-influenced",
+        "gospel influence",
+        "gospel influences",
     },
 }
 
@@ -1074,6 +1081,7 @@ GUEST_PAGE = """
       <button class="mood-pill" data-bucket="latin">Latin</button>
       <button class="mood-pill" data-bucket="desi">Desi</button>
       <button class="mood-pill" data-bucket="hindu devotional">Hindu Devotional</button>
+      <button class="mood-pill" data-bucket="gospel">Gospel</button>
     </div>
   </div>
 
