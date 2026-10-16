@@ -1,7 +1,9 @@
-# RiderMusic v2 Ideas
+# RiderMusic Future Ideas
 
-Not scoped, not scheduled — a running note of things worth considering
-for a future version, captured so they don't get lost between sessions.
+**Status: deferred.** RiderMusic v2 shipped as a Plex-only product. The
+multi-source ideas below are pushed to a later release, alongside the
+MusicMind v4.x / v5 backend work. Nothing here is scoped or scheduled —
+it's a running note so the ideas don't get lost between sessions.
 
 ## Additional music sources beyond Plex
 

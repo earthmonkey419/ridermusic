@@ -233,6 +233,18 @@ over real HTTPS.
 - **Installer/packaging story** for a driver who isn't the original
   developer is still minimal — this README is the current documentation.
 
+## What's new in v2
+
+- Gapless playback on the driver page (next track is preloaded and handed off)
+- Radio auto-fill: when the queue runs low, tracks similar to riders' picks are added
+- Dedicated Plex token helper (`make_plex_token.py`) and a clear "Plex is down" banner
+- Rider feedback form and driver-side feedback view
+- Guest album art, queue delete, and a Plex link on tracks
+- Driver Media Session support (CarPlay / lock screen controls and artwork)
+- New mood buckets (Gospel, New Wave/Post-Punk, Desi, Hindu Devotional) and a pill "More" sheet
+- Printable sign options: banner layout, QR size picker, optional rider instructions
+- VA-compilation artist display fix and several search-matching improvements
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
