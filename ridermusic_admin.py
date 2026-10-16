@@ -103,7 +103,14 @@ FOOTER_HTML = """
   <a href="https://vp-fun.com">vp-fun.com</a> ·
   From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
   <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
-  Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+  Not affiliated with or endorsed by Plex. Plex is a trademark of <a href="https://www.plex.tv/your-media/">Plex, Inc.</a>
+</div>
+"""
+
+SUPPORT_LINK_HTML = """
+<div style="margin:1.4em 0 0.2em 0; font-size:0.85em; color:var(--text-muted);">
+  Technical issue with RiderMusic?
+  <a href="mailto:support@vp-fun.com?subject=RiderMusic%20support&amp;body=What%20happened%3F%0A%0A" style="color:var(--accent);">Contact support</a>
 </div>
 """
 
@@ -189,10 +196,11 @@ def register_admin_routes(app):
     @app.route("/admin/status")
     @require_admin_auth
     def admin_status():
+        from ridermusic_plexhealth import check as plex_check
         db = get_db()
         active = get_active_session(db)
         if not active:
-            return jsonify({"active": False})
+            return jsonify({"active": False, "plex": plex_check()})
 
         now = time.time()
         remaining = max(0, active["expires_at"] - now)
@@ -204,6 +212,7 @@ def register_admin_routes(app):
 
         return jsonify({
             "active": True,
+            "plex": plex_check(),
             "session_id": active["session_id"],
             "device_count": active["device_count"],
             "rejoin_code": active["rejoin_code"],
@@ -274,6 +283,13 @@ ADMIN_DASHBOARD_PAGE = """
     margin-bottom: 0.1em;
   }
   #artist { color: var(--text-muted); margin-bottom: 0.8em; }
+  .plex-banner { background: #5a1f1f; border: 1px solid #c0392b; color: #ffd9d4;
+                 border-radius: 10px; padding: 0.8em 1em; margin-bottom: 1em; font-size: 0.9em; }
+  .plex-banner strong { display: block; margin-bottom: 0.3em; }
+  .plex-banner code { background: rgba(0,0,0,0.3); padding: 0.1em 0.4em; border-radius: 4px; }
+  #cover-art { display: block; width: 100%; max-width: 240px; aspect-ratio: 1 / 1;
+               object-fit: cover; border-radius: 12px; margin: 0 auto 0.9em;
+               background: rgba(255,255,255,0.08); }
   audio { width: 100%; margin-bottom: 0.6em; }
   #play-status {
     display: inline-block;
@@ -342,7 +358,9 @@ ADMIN_DASHBOARD_PAGE = """
     <a href="/admin/guide" style="color:var(--accent); font-size:0.6em; border:1px solid var(--accent); border-radius:50%; width:1.6em; height:1.6em; display:flex; align-items:center; justify-content:center; text-decoration:none; flex-shrink:0;">?</a>
   </div>
 
+  <div id="plex-banner" class="plex-banner" style="display:none"></div>
   <div class="card">
+    <img id="cover-art" alt="" style="display:none">
     <div id="track">Nothing playing</div>
     <div id="artist"></div>
     <audio id="player" controls></audio>
@@ -363,19 +381,47 @@ ADMIN_DASHBOARD_PAGE = """
   <h3>Recent activity</h3>
   <div class="card" id="log"></div>
 
+  <h3><a href="/admin/feedback" style="color:var(--accent); text-decoration:none;">Rider feedback &rarr;</a></h3>
+  """ + SUPPORT_LINK_HTML + """
+
   """ + FOOTER_HTML + """
 </div>
 
 <script>
+</script>
+<script src="/static/js/gapless.js?v=3"></script>
+<script>
 let currentRatingKey = null;
+let shownRatingKey = null;
+let upNextKey = null;
+let skipInFlight = false;
+let pollSeq = 0, minSeq = 0;
+const gapless = MLGapless.create({
+  audio: document.getElementById('player'),
+  urlFor: ref => '/player/stream/' + ref,
+  nextRef: () => upNextKey,
+  onSwap: el => {
+    const old = document.getElementById('player');
+    if (old && old !== el) {
+      old.removeAttribute('id');
+      el.id = 'player';
+      el.controls = true;
+      old.replaceWith(el);
+    }
+  },
+  onBlocked: () => {},
+});
 
 async function pollPlayer() {
+  const seq = ++pollSeq;
   const res = await fetch('/player/state');
   const data = await res.json();
-  const audio = document.getElementById('player');
+  if (skipInFlight || seq < minSeq) return;
+  let audio = gapless.active();
   const track = document.getElementById('track');
   const artist = document.getElementById('artist');
   const status = document.getElementById('play-status');
+  const cover = document.getElementById('cover-art');
 
   if (!data.active || !data.now_playing) {
     track.textContent = 'Nothing playing';
@@ -383,6 +429,10 @@ async function pollPlayer() {
     status.textContent = data.active ? 'Queue empty' : 'No active session';
     audio.pause();
     currentRatingKey = null;
+    shownRatingKey = null;
+    upNextKey = null;
+    cover.style.display = 'none';
+    clearMediaSession();
     return;
   }
 
@@ -396,8 +446,23 @@ async function pollPlayer() {
 
   if (data.now_playing.rating_key !== currentRatingKey) {
     currentRatingKey = data.now_playing.rating_key;
-    audio.src = '/player/stream/' + currentRatingKey;
+    if (data.is_playing) {
+      gapless.start(currentRatingKey);
+    } else {
+      audio.src = '/player/stream/' + currentRatingKey;
+    }
+    audio = gapless.active();
   }
+  if (data.now_playing.rating_key !== shownRatingKey) {
+    shownRatingKey = data.now_playing.rating_key;
+    // Same URL the lock-screen artwork uses, so it's already cached.
+    cover.onerror = () => { cover.style.display = 'none'; };
+    cover.style.display = '';
+    cover.src = '/player/art/' + currentRatingKey;
+    setMediaMetadata(data.now_playing);
+  }
+  upNextKey = data.up_next || null;
+  gapless.refresh();
 
   if (data.is_playing && audio.paused) {
     audio.play().catch(() => {});
@@ -406,47 +471,161 @@ async function pollPlayer() {
   }
 }
 
-document.getElementById('player').addEventListener('ended', async () => {
-  await fetch('/player/next', { method: 'POST' });
-});
+// --- Transport actions (shared by on-screen buttons and Media Session) ---
 
-document.getElementById('next-btn').addEventListener('click', async () => {
+async function driverNext() {
   await fetch('/player/next', { method: 'POST' });
   pollPlayer();
   pollStatus();
-});
+}
 
-document.getElementById('prev-btn').addEventListener('click', async () => {
+async function driverPrevious(fromHardware) {
   const r = await fetch('/player/previous', { method: 'POST' });
   const result = await r.json();
   if (result.error === 'no_previous_track') {
+    // A steering-wheel "back" with nothing earlier just restarts the
+    // track -- an alert() would be invisible behind CarPlay anyway.
+    if (fromHardware) { driverRestart(); return; }
     alert('Nothing earlier to go back to yet.');
   }
   pollPlayer();
   pollStatus();
-});
+}
 
-document.getElementById('restart-btn').addEventListener('click', async () => {
+function driverRestart() {
   const audio = document.getElementById('player');
   audio.currentTime = 0;
   audio.play().catch(() => {});
   fetch('/player/restart', { method: 'POST' });
-});
+}
 
-document.getElementById('playpause-btn').addEventListener('click', async () => {
+async function driverSetPlaying(action) {
+  // Act on the <audio> element first: iOS only honours play() while
+  // still inside the user/hardware gesture, and this also keeps the
+  // 2s poll from "correcting" a lock-screen pause back to playing.
   const audio = document.getElementById('player');
-  const action = audio.paused ? 'play' : 'pause';
+  if (action === 'play') audio.play().catch(() => {});
+  else audio.pause();
   await fetch('/player/play_pause', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action})
   });
   pollPlayer();
+}
+
+gapless.on('ended', async () => {
+  if (upNextKey) {
+    currentRatingKey = upNextKey;
+    upNextKey = null;
+    gapless.start(currentRatingKey);
+  }
+  skipInFlight = true;
+  try { await fetch('/player/next', { method: 'POST' }); } catch (e) {}
+  skipInFlight = false;
+  minSeq = pollSeq + 1;
+  pollPlayer();
 });
+
+document.getElementById('next-btn').addEventListener('click', driverNext);
+document.getElementById('prev-btn').addEventListener('click', () => driverPrevious(false));
+document.getElementById('restart-btn').addEventListener('click', driverRestart);
+document.getElementById('playpause-btn').addEventListener('click', () => {
+  const audio = document.getElementById('player');
+  driverSetPlaying(audio.paused ? 'play' : 'pause');
+});
+
+// --- Media Session: CarPlay / lock screen / Bluetooth displays ---------
+// Ported from MusicLounge Player's player-bar.js.
+
+const hasMediaSession = 'mediaSession' in navigator;
+
+let lastMediaNp = null;
+
+function setMediaMetadata(np) {
+  if (!hasMediaSession || !np) return;
+  lastMediaNp = np;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: np.title || '',
+      artist: np.artist || '',
+      album: 'RiderMusic Jukebox',
+      artwork: [
+        { src: location.origin + '/player/art/' + np.rating_key, sizes: '512x512', type: 'image/jpeg' },
+      ],
+    });
+  } catch (e) {}
+}
+
+function clearMediaSession() {
+  if (!hasMediaSession) return;
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = 'none';
+}
+
+function updatePositionState() {
+  if (!hasMediaSession || !('setPositionState' in navigator.mediaSession)) return;
+  const audio = document.getElementById('player');
+  if (!isFinite(audio.duration) || audio.duration <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: audio.duration,
+      playbackRate: audio.playbackRate || 1,
+      position: Math.min(audio.currentTime, audio.duration),
+    });
+  } catch (e) {}
+}
+
+if (hasMediaSession) {
+  gapless.on('play', () => { navigator.mediaSession.playbackState = 'playing'; });
+  // iOS can reset Now Playing info when a new src loads; setting it
+  // again once audio is actually playing makes it stick.
+  gapless.on('playing', () => { if (lastMediaNp) setMediaMetadata(lastMediaNp); });
+  gapless.on('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
+  gapless.on('loadedmetadata', updatePositionState);
+  gapless.on('seeked', updatePositionState);
+
+  const handlers = [
+    ['play', () => driverSetPlaying('play')],
+    ['pause', () => driverSetPlaying('pause')],
+    ['nexttrack', () => driverNext()],
+    ['previoustrack', () => driverPrevious(true)],
+    ['seekto', (d) => {
+      if (typeof d.seekTime === 'number') { gapless.active().currentTime = d.seekTime; updatePositionState(); }
+    }],
+  ];
+  handlers.forEach(([action, fn]) => {
+    try { navigator.mediaSession.setActionHandler(action, fn); } catch (e) {}
+  });
+}
+
+function showPlexBanner(p) {
+  const el = document.getElementById('plex-banner');
+  if (!p || p.state === 'ok' || p.state === 'unknown') { el.style.display = 'none'; return; }
+  el.innerHTML = '';
+  const head = document.createElement('strong');
+  const body = document.createElement('div');
+  if (p.state === 'unauthorized') {
+    head.textContent = 'Plex rejected RiderMusic\u2019s access token';
+    body.append('No music will play until it is replaced. In the RiderMusic folder run ');
+    const c = document.createElement('code');
+    c.textContent = 'python3 make_plex_token.py --write';
+    body.append(c, ' and restart RiderMusic.');
+  } else if (p.state === 'unreachable') {
+    head.textContent = "RiderMusic can't reach Plex";
+    body.textContent = 'Check that Plex is running and that PLEX_URL in config.py is right. ' + (p.detail || '');
+  } else {
+    head.textContent = 'Plex is having a problem';
+    body.textContent = p.detail || '';
+  }
+  el.append(head, body);
+  el.style.display = 'block';
+}
 
 async function pollStatus() {
   const res = await fetch('/admin/status');
   const data = await res.json();
+  showPlexBanner(data.plex);
   const statusEl = document.getElementById('status');
   const endBtn = document.getElementById('end-btn');
   const startBtn = document.getElementById('start-btn');
@@ -539,15 +718,13 @@ GUIDE_PAGE = """
   code is harmless.</p>
 
   <h3>How a ride works</h3>
-  <p>The first passenger to scan starts a session automatically &mdash;
-  you don't have to do anything, and no code is needed. If a second
-  phone scans while a ride is already active, they'll be asked for a
-  4-digit code &mdash; shown right on this dashboard &mdash; before
-  they can join. Just read it to them out loud. This keeps a stranger
-  with an old link from joining a ride already in progress. Sessions
-  expire automatically after the configured timeout. Your only
-  necessary action is the <strong>End Session</strong> button on the
-  dashboard, and only if a passenger is dropped off early.</p>
+  <p>Tap <strong>Start Ride</strong> on the dashboard when a passenger
+  gets in. That generates a 4-digit code, shown right on the dashboard;
+  every rider who scans the QR code is asked for it before they can
+  join. Just read it to them out loud. This keeps a stranger with an
+  old photo of the code from joining a ride already in progress.
+  Sessions expire automatically after the configured timeout; use
+  <strong>End Session</strong> if a passenger is dropped off early.</p>
 
   <h3>The driver player</h3>
   <p>This dashboard page is also the player &mdash; pair your phone to
@@ -555,13 +732,27 @@ GUIDE_PAGE = """
   other audio app, then leave this page open while you drive. Below
   the player, four buttons give you a direct override &mdash; go back
   a track, restart the current one, play/pause, or skip &mdash;
-  independent of anything a rider is doing on their own phone.</p>
+  independent of anything a rider is doing on their own phone. Your
+  car's steering-wheel and CarPlay controls work too, and the car's
+  display shows the current song.</p>
+  <p><strong>On iPhone, keep this page in a regular Safari tab.</strong>
+  Don't add it to your home screen as an app: iOS stops an installed
+  web app from starting the next song while it's in the background,
+  so music would stop after one track with the screen off. A Safari
+  tab doesn't have this problem.</p>
 
   <h3>Changing settings</h3>
   <p>Admin password, volume ceiling, session timeout, and Plex
   connection details all live in <code>config.py</code> on the server
   running RiderMusic Jukebox for Plex &mdash; not in this UI yet. Changes require editing
   that file and restarting the app.</p>
+
+  <h3>Getting help</h3>
+  <p>Ran into a technical problem? Email
+  <a href="mailto:support@vp-fun.com?subject=RiderMusic%20support&amp;body=What%20happened%3F%0A%0A">support@vp-fun.com</a> and tell us what
+  happened and what you were doing. Comments from riders about the
+  music or the ride live under <a href="/admin/feedback">Rider
+  feedback</a>.</p>
 
   <h3>Full setup &amp; deployment</h3>
   <p>For installing RiderMusic Jukebox for Plex itself (Docker or manual Python setup,

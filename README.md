@@ -102,8 +102,26 @@ App runs on port `6869` by default.
 the app to be served over HTTPS. `False` is for local development
 only — cookies won't persist in a real browser over plain HTTP.
 
-**Getting a real Plex token:** see
-[Plex's own guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+**Getting a Plex token (recommended):** give RiderMusic its own. With the
+venv active, run:
+
+```bash
+python3 make_plex_token.py --write
+```
+
+Open the link it prints, sign in to Plex and approve. RiderMusic then shows
+up as its own device ("RiderMusic") under Plex's Authorized Devices, and
+`PLEX_TOKEN` in `config.py` is updated (the old file is kept as
+`config.py.bak`). Restart RiderMusic afterwards.
+
+Why not copy a token out of Plex Web? A token taken from the browser belongs
+to that browser session and stops working when you sign out of it. Don't
+remove the "RiderMusic" entry from Authorized Devices, and give each of your
+apps its own token. If Plex ever rejects the token, the driver dashboard
+shows a red banner and riders see "music unavailable" instead of a confusing
+error; re-run the script and restart. (Plex's
+[manual guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
+still works if you prefer.)
 
 ## Optional: MusicMind for Plex integration
 

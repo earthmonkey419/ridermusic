@@ -59,6 +59,81 @@ SIGN_PAGE = """
     margin-bottom: 1.5em;
   }
 
+  .layout-toggle {
+    display: flex;
+    gap: 0.5em;
+    margin-bottom: 1.2em;
+  }
+  .toggle-btn {
+    flex: 1;
+    padding: 0.7em;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .toggle-btn.active { background: var(--accent); }
+
+  .steps-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    margin-bottom: 1.2em;
+    font-size: 0.95em;
+    cursor: pointer;
+  }
+  .steps-toggle input { width: 1.15em; height: 1.15em; accent-color: var(--accent); }
+
+  .sign-steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+    color: #1a1a1a;
+    font-size: 0.8em;
+    line-height: 1.35;
+  }
+  .sign-steps.off { display: none !important; }
+  .sign-steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 1.75em;
+    margin-bottom: 0.35em;
+  }
+  .sign-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    width: 1.35em;
+    height: 1.35em;
+    line-height: 1.35em;
+    border-radius: 50%;
+    background: #44a1a4;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.85em;
+    text-align: center;
+  }
+  .sign-card.portrait .sign-steps {
+    margin: 1em auto 0 auto;
+    max-width: 15em;
+    padding-top: 0.9em;
+    border-top: 1px solid #e3e3e3;
+  }
+  /* Banner: steps stack under the tagline so the card stays 2in tall
+     and doesn't grow wider than a letter-size page. */
+  .sign-card.banner .sign-steps {
+    font-size: 0.72em;
+    margin-top: 0.1em;
+  }
+  .sign-card.banner .sign-steps li { margin-bottom: 0.15em; }
+
   .print-tip {
     background: var(--panel);
     border-radius: 10px;
@@ -83,14 +158,29 @@ SIGN_PAGE = """
     margin-bottom: 2em;
   }
 
-  /* --- The printable card itself --- */
-  .sign-card {
+  /* --- The printable card(s) --- */
+  .sign-card { display: none; }
+  .sign-card.portrait.active { display: block; }
+  .sign-card.banner.active { display: flex; }
+
+  /* Everything on the card scales from --qr-in (QR size in inches, set
+     by the size picker): the QR prints at exactly that size, and text
+     and spacing are em-based off a font-size proportional to it. */
+  .sign-card { --qr-in: 2.5; }
+  .sign-card img { image-rendering: pixelated; }
+
+  .sign-card.portrait {
     background: #ffffff;
     color: #1a1a1a;
     border-radius: 18px;
-    padding: 2em 1.5em;
+    padding: 1.6em 1.4em;
     text-align: center;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    /* text grows slower than the QR so big codes still fit a page */
+    font-size: calc(8pt + var(--qr-in) * 1.5pt);
+    width: calc(var(--qr-in) * 1in + 4em);
+    margin: 0 auto;
+    box-sizing: border-box;
   }
   .sign-logo {
     font-family: 'Sora', sans-serif;
@@ -100,18 +190,19 @@ SIGN_PAGE = """
     margin-bottom: 0.8em;
   }
   .sign-logo span { color: #ff9a00; }
-  #sign-headline {
+  .sign-headline-text {
     font-family: 'Sora', sans-serif;
     font-weight: 800;
-    font-size: 1.6em;
     color: #1a1a1a;
-    margin: 0 0 1em 0;
     line-height: 1.2;
   }
-  .sign-card img {
-    width: 100%;
-    max-width: 130px;
-    height: auto;
+  .sign-card.portrait #sign-headline-portrait {
+    font-size: 1.6em;
+    margin: 0 0 1em 0;
+  }
+  .sign-card.portrait img {
+    width: calc(var(--qr-in) * 1in);
+    height: calc(var(--qr-in) * 1in);
     display: block;
     margin: 0 auto 1em auto;
   }
@@ -126,13 +217,49 @@ SIGN_PAGE = """
     margin-top: 0.8em;
   }
 
+  /* --- Banner layout: fixed 2in-tall row, QR + text side by side --- */
+  .sign-card.banner {
+    background: #ffffff;
+    color: #1a1a1a;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    align-items: center;
+    font-size: calc(9pt + var(--qr-in) * 1.5pt);
+    gap: 2.1em;
+    padding: 0.9em 1.8em;
+    width: fit-content;
+  }
+  .sign-card.banner img {
+    height: calc(var(--qr-in) * 1in);
+    width: calc(var(--qr-in) * 1in);
+    display: block;
+    flex-shrink: 0;
+  }
+  .banner-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.7em;
+  }
+  .sign-card.banner .sign-logo {
+    font-size: 1.1em;
+    margin-bottom: 0;
+  }
+  .sign-card.banner #sign-headline-banner {
+    font-size: 1.5em;
+    white-space: nowrap;
+  }
+  .sign-card.banner .sign-sub {
+    font-size: 1em;
+  }
+
   @media print {
     html, body {
       background: #ffffff !important;
       margin: 0;
       padding: 0;
     }
-    .wrap > *:not(.sign-card) {
+    .wrap > *:not(.sign-card.active) {
       display: none !important;
     }
     .wrap {
@@ -140,7 +267,7 @@ SIGN_PAGE = """
       max-width: none;
     }
     .sign-card {
-      box-shadow: none;
+      box-shadow: none !important;
       margin: 0 auto;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -154,26 +281,85 @@ SIGN_PAGE = """
   <div class="logo">Rider<span class="accent">Music</span> Jukebox for Plex — Print a Sign</div>
 
   <input type="text" id="headline-input" value="Be the DJ for your ride"
-         oninput="document.getElementById('sign-headline').textContent = this.value">
+         oninput="document.querySelectorAll('.sign-headline-text').forEach(el => el.textContent = this.value)">
+
+  <div class="layout-toggle">
+    <button class="toggle-btn active" data-layout="portrait" onclick="setSignLayout('portrait')">Portrait</button>
+    <button class="toggle-btn" data-layout="banner" onclick="setSignLayout('banner')">Banner</button>
+  </div>
+
+  <label class="steps-toggle">
+    QR code size
+    <select id="qr-size" onchange="setQrSize(this.value)"
+            style="padding:0.35em 0.6em;border-radius:8px;border:none;background:var(--panel);color:var(--text);font-family:'Inter',sans-serif;font-size:0.95em;">
+      <option value="1.5">1.5 in</option>
+      <option value="2">2 in</option>
+      <option value="2.5" selected>2.5 in</option>
+      <option value="3">3 in</option>
+      <option value="3.5">3.5 in</option>
+      <option value="4">4 in</option>
+    </select>
+  </label>
+
+  <label class="steps-toggle">
+    <input type="checkbox" id="steps-toggle" checked
+           onchange="document.querySelectorAll('.sign-steps').forEach(el => el.classList.toggle('off', !this.checked))">
+    Include simple instructions for riders
+  </label>
 
   <div class="print-tip">
     <strong>Before printing:</strong> in your browser's print dialog, make
     sure "Background graphics" is turned on, or the card will print
-    without its colors.
+    without its colors. Set scale to "Actual size" / 100% (not "Fit to
+    page") so the QR code prints at exactly the size you picked. A 3.5 in
+    or 4 in banner needs landscape orientation.
   </div>
 
   <button id="print-btn" onclick="window.print()">Print / Save as PDF</button>
 
-  <div class="sign-card">
+  <div class="sign-card portrait active">
     <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
-    <div id="sign-headline">Be the DJ for your ride</div>
+    <div id="sign-headline-portrait" class="sign-headline-text">Be the DJ for your ride</div>
     <img src="/admin/sign/qr.png" alt="QR code to join">
     <div class="sign-sub">Scan to choose the music</div>
+    <ol class="sign-steps">
+      <li>Scan the code with your phone camera</li>
+      <li>Enter the 4-digit ride code from your driver</li>
+      <li>Search or tap a genre, then tap <strong>+&nbsp;Add</strong></li>
+    </ol>
     <div class="sign-website">ridermusic.vp-fun.com</div>
+  </div>
+
+  <div class="sign-card banner">
+    <img src="/admin/sign/qr.png" alt="QR code to join">
+    <div class="banner-text">
+      <div class="sign-logo">Rider<span>Music</span> Jukebox</div>
+      <div id="sign-headline-banner" class="sign-headline-text">Be the DJ for your ride</div>
+      <div class="sign-sub">Scan to choose the music</div>
+      <ol class="sign-steps">
+        <li>Scan the code with your phone camera</li>
+        <li>Enter the 4-digit ride code from your driver</li>
+        <li>Search or tap a genre, then tap <strong>+&nbsp;Add</strong></li>
+      </ol>
+    </div>
   </div>
 
   """ + FOOTER_HTML + """
 </div>
+<script>
+function setQrSize(inches) {
+  document.querySelectorAll('.sign-card').forEach(c => c.style.setProperty('--qr-in', inches));
+}
+
+function setSignLayout(layout) {
+  document.querySelectorAll('.toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === layout);
+  });
+  document.querySelectorAll('.sign-card').forEach(c => {
+    c.classList.toggle('active', c.classList.contains(layout));
+  });
+}
+</script>
 </body>
 </html>
 """

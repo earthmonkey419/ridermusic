@@ -1,11 +1,13 @@
-from flask import Flask, redirect
+from flask import Flask, redirect, request
 
 from ridermusic_sessions import register_join_route, teardown_db
 from ridermusic_admin import register_admin_routes, register_admin_dashboard_route, register_guide_route
 from ridermusic_sign import register_sign_routes
 from ridermusic_player import register_player_routes
 from ridermusic_guest import register_guest_routes, register_guest_page_route
+from ridermusic_feedback import register_feedback_routes
 from ridermusic_playback import register_playback_routes, register_player_state_route, register_player_page_route
+from ridermusic_plexhealth import register_plex_error_handlers
 
 app = Flask(__name__)
 app.teardown_appcontext(teardown_db)
@@ -17,9 +19,11 @@ register_sign_routes(app)
 register_player_routes(app)
 register_guest_routes(app)
 register_guest_page_route(app)
+register_feedback_routes(app)
 register_playback_routes(app)
 register_player_state_route(app)
 register_player_page_route(app)
+register_plex_error_handlers(app)
 
 
 
@@ -35,6 +39,18 @@ def add_no_cache_headers(response):
     # or otherwise) -- every page here is session-specific. A cached
     # copy of /guest or /join served to a different visitor would be a
     # real, serious bug, not just a staleness annoyance.
+    # Exception: static images (icons, logo) are the same for everyone,
+    # and iOS's lock-screen artwork loader won't show no-store images.
+    if request.path.startswith("/guest/art/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "private, max-age=86400"
+        response.headers.pop("Pragma", None)
+        return response
+    if request.path.startswith("/player/art/") or (
+        request.path.startswith("/static/") and request.path.rsplit(".", 1)[-1].lower() in ("png", "jpg", "jpeg", "ico")
+    ):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers.pop("Pragma", None)
+        return response
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
     response.headers["Pragma"] = "no-cache"
     return response

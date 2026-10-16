@@ -1,5 +1,6 @@
 import time
 import random
+import math
 import os
 import sqlite3
 from flask import request, jsonify, g
@@ -17,6 +18,18 @@ from ridermusic_playback import get_playback_state, advance_to_next
 MUSICMIND_DB_PATH = getattr(_config, "MUSICMIND_DB_PATH", None)
 
 
+def _normalize_for_match(s):
+    """Strip periods before comparing artist names. A period-vs-no-period
+    spelling difference (e.g. 'Mary J Blige' vs 'Mary J. Blige') is a
+    common Plex tagging inconsistency -- some tracks/albums get tagged
+    one way, some the other, as if they were different artists. A
+    plain substring match only ever catches whichever spelling was
+    typed; stripping periods from both sides makes the two spellings
+    equivalent for matching purposes without touching what's actually
+    displayed."""
+    return (s or "").replace(".", "").lower()
+
+
 def _track_to_dict(t):
     return {
         "rating_key": t.ratingKey,
@@ -24,7 +37,31 @@ def _track_to_dict(t):
         "artist": getattr(t, "originalTitle", None) or getattr(t, "grandparentTitle", None),
         "album": getattr(t, "parentTitle", None),
         "duration_ms": getattr(t, "duration", None),
+        "popularity": getattr(t, "ratingCount", None) or 0,
     }
+
+
+def _weighted_shuffle(items, weight_fn, seed=None):
+    """Order items so higher-weighted ones land near the front more
+    often, without making the order deterministic. Unlike a plain
+    popularity sort, a fresh call (new seed) still varies which
+    tracks come first and in what sequence -- unlike plain
+    random.shuffle, popularity actually influences the outcome.
+
+    Standard weighted-sampling-without-replacement trick (A-ES): each
+    item gets a random key biased by its weight, u ** (1/w), then
+    items are sorted by that key descending. Weight is log-compressed
+    so one wildly-played track can't dominate every single mix, and a
+    track with no popularity signal at all (weight 0) still gets a
+    real, if less likely, shot via the +1 floor -- it's never
+    excluded outright."""
+    rng = random.Random(seed) if seed is not None else random
+
+    def _key(item):
+        w = math.log1p(max(weight_fn(item) or 0, 0)) + 1.0
+        return rng.random() ** (1.0 / w)
+
+    return sorted(items, key=_key, reverse=True)
 
 
 # Broad mood buckets mapped to keyword substrings, matched against the
@@ -46,6 +83,14 @@ MOOD_BUCKETS = {
     "jazz": ["jazz"],
     "reggae": ["reggae", "ska", "dub"],
     "latin": ["latin", "salsa", "bossa", "cumbia"],
+    "new wave": ["new wave"],
+    "post-punk": ["post-punk", "post punk"],
+    "desi": [
+        "bollywood", "indian", "punjabi", "desi", "sitar", "raga",
+        "carnatic", "hindustani", "tabla", "tamil", "ghazal",
+    ],
+    "hindu devotional": ["devotional", "hindu", "bhajan", "qawwali"],
+    "gospel": ["gospel", "spirituals", "hymn", "worship", "contemporary christian"],
 }
 
 # Some buckets need a keyword to cast a wide net (e.g. "country" has to
@@ -71,6 +116,16 @@ MOOD_BUCKET_EXCLUDED_TAGS = {
         "country-influenced pop",
         "country-infused house",
         "dance-pop country",
+    },
+    "hindu devotional": {
+        "hindustani",
+        "hindustani classical",
+    },
+    "gospel": {
+        "gospel-influenced r&b",
+        "gospel-influenced",
+        "gospel influence",
+        "gospel influences",
     },
 }
 
@@ -119,7 +174,7 @@ def _cache_get(key):
 
 def _cache_evict_stale():
     now = time.time()
-    stale = [k for k, (ts, _, ttl) in _RESULT_CACHE.items() if now - ts > ttl]
+    stale = [k for k, (ts, _, ttl) in list(_RESULT_CACHE.items()) if now - ts > ttl]
     for k in stale:
         _RESULT_CACHE.pop(k, None)
 
@@ -127,6 +182,10 @@ def _cache_evict_stale():
 def _paged_response(all_results, offset, limit):
     page = all_results[offset:offset + limit]
     has_more = (offset + limit) < len(all_results)
+    # popularity is an internal ranking signal (used for mood pills'
+    # weighted shuffle), not something the guest UI needs -- strip it
+    # before it goes out over the wire.
+    page = [{k: v for k, v in d.items() if k != "popularity"} for d in page]
     return jsonify({
         "results": page,
         "has_more": has_more,
@@ -137,13 +196,16 @@ def _paged_response(all_results, offset, limit):
 def _build_search_results(section, plex, q):
     """Same three-layer literal-then-fuzzy search as before, just with
     wider candidate limits so there's enough to page through."""
-    q_lower = q.lower()
+    q_norm = _normalize_for_match(q)
     results = []
     seen_keys = set()
 
     # Layer 1: literal artist name match -> that artist's own tracks.
+    # Normalized (period-stripped) on both sides so 'Mary J Blige' and
+    # 'Mary J. Blige' match the same query regardless of which
+    # spelling this particular artist tag happens to use.
     all_artists = section.searchArtists()
-    matching_artists = [a for a in all_artists if q_lower in a.title.lower()]
+    matching_artists = [a for a in all_artists if q_norm in _normalize_for_match(a.title)]
     for artist in matching_artists[:8]:
         for t in artist.tracks()[:20]:
             if t.ratingKey not in seen_keys:
@@ -183,20 +245,28 @@ def _musicmind_search(q, limit=500):
     that's Plex's hub search specifically, MusicMind has no equivalent,
     so the dispatcher below falls back to live Plex fuzzy search only
     if this returns literally nothing.
+
+    Artist matching strips periods on both sides of the comparison
+    (see _normalize_for_match) so a spelling split like 'Mary J Blige'
+    vs 'Mary J. Blige' resolves to one artist instead of two. Title
+    matching is left as a plain substring match -- not the reported
+    problem, and title text has its own, unrelated punctuation (e.g.
+    "Vol. 2") that doesn't need this treatment.
     """
-    q_like = f"%{q.lower()}%"
+    q_like_artist = f"%{_normalize_for_match(q)}%"
+    q_like_title = f"%{q.lower()}%"
     conn = _musicmind_conn()
     try:
         conn.row_factory = sqlite3.Row
         artist_rows = conn.execute(
             "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
-            "FROM tracks WHERE LOWER(COALESCE(real_artist, artist)) LIKE ?",
-            (q_like,),
+            "FROM tracks WHERE REPLACE(LOWER(COALESCE(real_artist, artist)), '.', '') LIKE ? LIMIT ?",
+            (q_like_artist, limit),
         ).fetchall()
         title_rows = conn.execute(
             "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
-            "FROM tracks WHERE LOWER(title) LIKE ?",
-            (q_like,),
+            "FROM tracks WHERE LOWER(title) LIKE ? LIMIT ?",
+            (q_like_title, limit),
         ).fetchall()
     finally:
         conn.close()
@@ -312,6 +382,10 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
     removed from Plex since then, adding it to the queue fails
     gracefully (guest_queue_add already returns "track_not_found") --
     rare in practice, not worth reconciling live for.
+
+    Also pulls rating_count (MusicMind's stored copy of Plex's own
+    ratingCount) as the pool's "popularity" field, matching the
+    live-Plex path -- see the comment at the pool.append() call below.
     """
     keywords = MOOD_BUCKETS.get(bucket_key, [bucket_key])
     excluded = MOOD_BUCKET_EXCLUDED_TAGS.get(bucket_key, set())
@@ -340,7 +414,8 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
 
         placeholders = ",".join("?" * len(matched_keys))
         track_rows = conn.execute(
-            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+            "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, "
+            "duration_ms, rating_count "
             f"FROM tracks WHERE rating_key IN ({placeholders})",
             matched_keys,
         ).fetchall()
@@ -359,6 +434,18 @@ def _mood_pool_from_musicmind(bucket_key, pool_size=500):
             "artist": r["artist"],
             "album": r["album"],
             "duration_ms": r["duration_ms"],
+            # rating_count is the same Plex ratingCount signal the
+            # live-Plex path (_genre_bucket_pool) sorts by -- using it
+            # here too means both paths' "popularity" field is the
+            # same metric on the same scale, so a cached pool built
+            # from either path feeds the same weighted shuffle
+            # correctly. MusicMind also has play_count (personal
+            # listening habit, Plex viewCount / Last.fm scrobbles)
+            # which could be blended in or swapped for this if we
+            # decide personal-listening-weighted mood pills are a
+            # better fit than global popularity -- not done here to
+            # keep this change matching existing precedent exactly.
+            "popularity": r["rating_count"] or 0,
         })
 
     random.shuffle(pool)
@@ -421,9 +508,30 @@ def register_guest_routes(app):
             plex = get_plex()
             section = plex.library.section(MUSIC_LIB)
             all_results = _build_mood_pool(section, bucket)
-            _cache_set(cache_key, all_results, ttl=_MOOD_CACHE_TTL)
+            if all_results:  # never cache an empty pool -- it would stick for an hour
+                _cache_set(cache_key, all_results, ttl=_MOOD_CACHE_TTL)
 
-        return _paged_response(all_results, offset, limit)
+        # Page through a seeded, popularity-weighted shuffle of the
+        # cached pool: a fresh tap (no seed) gets a new mix, biased
+        # toward more-popular tracks near the top; "load more" sends
+        # the same seed back, so scrolling never repeats or skips a
+        # track and stays consistent with the mix that was shown.
+        seed = request.args.get("seed", type=int)
+        if seed is None:
+            seed = random.randint(0, 2**31 - 1)
+        shuffled = _weighted_shuffle(
+            list(all_results), lambda d: d.get("popularity", 0), seed=seed
+        )
+        page = shuffled[offset:offset + limit]
+        # popularity is an internal ranking signal, not something the
+        # guest UI needs -- strip it before it goes out over the wire.
+        page = [{k: v for k, v in d.items() if k != "popularity"} for d in page]
+        return jsonify({
+            "results": page,
+            "has_more": (offset + limit) < len(shuffled),
+            "next_offset": offset + len(page),
+            "seed": seed,
+        })
 
     @app.route("/guest/queue/add", methods=["POST"])
     @require_active_session
@@ -437,21 +545,41 @@ def register_guest_routes(app):
         session_id = g.session["session_id"]
 
         current_count = db.execute(
-            "SELECT COUNT(*) AS c FROM queue WHERE session_id = ?",
+            "SELECT COUNT(*) AS c FROM queue WHERE session_id = ? "
+            "AND COALESCE(source, 'guest') != 'radio'",
             (session_id,)
         ).fetchone()["c"]
 
         if current_count >= MAX_QUEUE_ADDS_PER_SESSION:
             return jsonify({"error": "queue_limit_reached"}), 429
 
-        plex = get_plex()
         try:
+            plex = get_plex()
             track = plex.fetchItem(int(rating_key))
         except Exception:
+            from ridermusic_plexhealth import is_down
+            if is_down():
+                return jsonify({"error": "music_unavailable"}), 503
             return jsonify({"error": "track_not_found"}), 404
 
         if track.type != "track":
             return jsonify({"error": "not_a_music_track"}), 403
+
+        # If radio already lined this exact track up, the rider's add
+        # promotes it (same slot logic as any rider pick, counts toward
+        # their cap) instead of queueing a duplicate.
+        cur_id = get_playback_state(db, session_id)["current_queue_id"]
+        promoted = db.execute(
+            "UPDATE queue SET source = 'guest', added_at = ? "
+            "WHERE session_id = ? AND rating_key = ? AND played = 0 "
+            "AND source = 'radio' AND id != COALESCE(?, -1)",
+            (time.time(), session_id, track.ratingKey, cur_id)
+        ).rowcount
+        if promoted:
+            db.commit()
+            log_action(db, session_id, "queue_add", detail=track.title)
+            return jsonify({"added": True, "title": track.title,
+                            "artist": track.originalTitle or track.grandparentTitle})
 
         db.execute(
             "INSERT INTO queue (session_id, rating_key, title, artist, "
@@ -483,15 +611,18 @@ def register_guest_routes(app):
         current_id = state["current_queue_id"]
 
         rows = db.execute(
-            "SELECT rating_key, title, artist, duration_ms, added_at FROM queue "
+            "SELECT id, rating_key, title, artist, duration_ms, added_at, "
+            "COALESCE(source, 'guest') AS source FROM queue "
             "WHERE session_id = ? AND played = 0 AND id != COALESCE(?, -1) "
-            "ORDER BY added_at ASC",
+            "ORDER BY (COALESCE(source, 'guest') = 'radio') ASC, added_at ASC",
             (session_id, current_id)
         ).fetchall()
 
         return jsonify({
             "queue": [
                 {
+                    "id": r["id"],
+                    "source": r["source"],
                     "rating_key": r["rating_key"],
                     "title": r["title"],
                     "artist": r["artist"],
@@ -500,6 +631,91 @@ def register_guest_routes(app):
                 for r in rows
             ]
         })
+
+    @app.route("/guest/queue/remove", methods=["POST"])
+    @require_active_session
+    def guest_queue_remove():
+        data = request.get_json(silent=True) or {}
+        try:
+            queue_id = int(data.get("id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "id required"}), 400
+
+        db = get_db()
+        session_id = g.session["session_id"]
+
+        # Never remove the track that's playing -- that's Skip's job.
+        state = get_playback_state(db, session_id)
+        if state["current_queue_id"] == queue_id:
+            return jsonify({"error": "now_playing"}), 409
+
+        row = db.execute(
+            "SELECT title FROM queue WHERE id = ? AND session_id = ? AND played = 0",
+            (queue_id, session_id)
+        ).fetchone()
+        if not row:
+            return jsonify({"removed": False, "error": "not_in_queue"}), 404
+
+        # played = 2 means "removed by a guest". Not a DELETE, so the row
+        # still counts toward MAX_QUEUE_ADDS_PER_SESSION (add/remove can't
+        # be used to dodge the cap) and Back/previous never sees it
+        # (that only looks at played = 1).
+        db.execute(
+            "UPDATE queue SET played = 2 WHERE id = ? AND session_id = ? AND played = 0",
+            (queue_id, session_id)
+        )
+        db.commit()
+        log_action(db, session_id, "queue_remove", detail=row["title"])
+        try:
+            from ridermusic_radio import schedule_top_up
+            schedule_top_up(session_id)
+        except Exception:
+            pass
+        return jsonify({"removed": True})
+
+    _ART_CACHE = {}   # rating_key -> (bytes, content_type), or None = no art
+
+    @app.route("/guest/art/<int:rating_key>")
+    @require_active_session
+    def guest_art(rating_key):
+        # Small album-art thumbnail for the guest portal. Needs an active
+        # guest session; the Plex token stays server-side.
+        import requests
+        from urllib.parse import quote
+        from flask import Response
+
+        if rating_key in _ART_CACHE:
+            cached = _ART_CACHE[rating_key]
+            if cached is None:
+                return ("", 404)
+        else:
+            try:
+                track = get_plex().fetchItem(rating_key)
+                if track.type != "track":
+                    return ("", 404)
+                thumb = track.parentThumb or track.thumb or track.grandparentThumb
+            except Exception:
+                return ("", 404)   # transient: don't cache the miss
+
+            cached = None
+            if thumb:
+                url = (f"{_config.PLEX_URL}/photo/:/transcode?width=160&height=160"
+                       f"&minSize=1&upscale=1&url={quote(thumb, safe='')}"
+                       f"&X-Plex-Token={_config.PLEX_TOKEN}")
+                try:
+                    up = requests.get(url, timeout=6)
+                except Exception:
+                    return ("", 404)   # transient: don't cache the miss
+                if up.status_code == 200 and up.content:
+                    cached = (up.content, up.headers.get("Content-Type", "image/jpeg"))
+
+            if len(_ART_CACHE) >= 400:
+                _ART_CACHE.pop(next(iter(_ART_CACHE)))
+            _ART_CACHE[rating_key] = cached
+            if cached is None:
+                return ("", 404)
+
+        return Response(cached[0], content_type=cached[1])
 
 
 GUEST_PAGE = """
@@ -614,6 +830,79 @@ GUEST_PAGE = """
     white-space: nowrap;
   }
   .mood-pill:active { background: var(--accent); }
+  .mood-pill.active[data-bucket] {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .mood-pill.active[data-bucket]::after { content: " ↻"; }
+
+  .results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8em;
+    padding: 0.2em 0 0.7em 0;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+  .results-head strong { color: var(--text); font-weight: 600; }
+  .remix-btn {
+    padding: 0.45em 0.9em;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .remix-btn:active { background: var(--accent); }
+  .mood-pill.more-trigger {
+    background: var(--cta);
+    color: var(--bg);
+    font-weight: 700;
+    border-color: var(--cta);
+  }
+  .sheet-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 40;
+  }
+  .sheet-backdrop.open { display: block; }
+  .bottom-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--panel);
+    border-radius: 16px 16px 0 0;
+    padding: 1.2em 1.25em calc(1.2em + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    z-index: 41;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .bottom-sheet.open { transform: translateY(0); }
+  .sheet-handle {
+    width: 36px;
+    height: 4px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 999px;
+    margin: 0 auto 1em;
+  }
+  .sheet-title {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    margin-bottom: 0.8em;
+    color: var(--text);
+  }
+  .sheet-pills { display: flex; flex-wrap: wrap; gap: 0.5em; }
 
   .card {
     background: var(--panel);
@@ -680,6 +969,20 @@ GUEST_PAGE = """
   .add-btn:disabled { cursor: default; opacity: 0.85; }
   .add-btn.added { background: var(--accent); color: #fff; }
   .queue-idx { color: var(--accent); font-weight: 700; margin-right: 0.6em; }
+  .art { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex: none;
+         background: rgba(255,255,255,0.08); margin-right: 0.7em; }
+  .art-lg { width: 72px; height: 72px; border-radius: 8px; margin-right: 0.9em; }
+  .np-row { display: flex; align-items: center; }
+  .np-text { flex: 1; min-width: 0; }
+  .result-info { flex: 1; min-width: 0; margin-right: 0.6em; }
+  .queue-main { display: flex; align-items: center; flex: 1; min-width: 0; }
+  .queue-text { min-width: 0; }
+  .q-del { background: none; border: none; color: var(--text-muted); font-size: 1.1em;
+           padding: 0.35em 0.55em; cursor: pointer; flex: none; }
+  .q-del:disabled { opacity: 0.4; cursor: default; }
+  .radio-tag { font-size: 0.65em; font-weight: 600; text-transform: uppercase;
+               letter-spacing: 0.06em; color: var(--accent); background: rgba(68,161,164,0.2);
+               padding: 0.15em 0.5em; border-radius: 999px; white-space: nowrap; }
   .empty-hint { color: var(--text-muted); padding: 0.6em 0; }
   .end-hint { text-align: center; font-size: 0.85em; }
 
@@ -752,27 +1055,46 @@ GUEST_PAGE = """
   </div>
 
   <div class="mood-row">
-    <button class="mood-pill" data-bucket="chill">Chill</button>
-    <button class="mood-pill" data-bucket="dance">Dance</button>
-    <button class="mood-pill" data-bucket="r&b">R&amp;B</button>
-    <button class="mood-pill" data-bucket="disco">Disco</button>
-    <button class="mood-pill" data-bucket="80s">80s</button>
-    <button class="mood-pill" data-bucket="country">Country</button>
-    <button class="mood-pill" data-bucket="hip hop">Hip Hop</button>
-    <button class="mood-pill" data-bucket="classical">Classical</button>
-    <button class="mood-pill" data-bucket="electronic">Electronic</button>
     <button class="mood-pill" data-bucket="rock">Rock</button>
     <button class="mood-pill" data-bucket="pop">Pop</button>
-    <button class="mood-pill" data-bucket="jazz">Jazz</button>
-    <button class="mood-pill" data-bucket="reggae">Reggae</button>
-    <button class="mood-pill" data-bucket="latin">Latin</button>
+    <button class="mood-pill" data-bucket="new wave">New Wave</button>
+    <button class="mood-pill" data-bucket="post-punk">Post-Punk</button>
+    <button class="mood-pill" data-bucket="dance">Dance</button>
+    <button class="mood-pill" data-bucket="electronic">Electronic</button>
+    <button class="mood-pill" data-bucket="r&b">R&amp;B</button>
+    <button class="mood-pill more-trigger" id="more-moods-btn">More &raquo;</button>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <div class="bottom-sheet" id="mood-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">More moods</div>
+    <div class="sheet-pills">
+      <button class="mood-pill" data-bucket="chill">Chill</button>
+      <button class="mood-pill" data-bucket="country">Country</button>
+      <button class="mood-pill" data-bucket="hip hop">Hip Hop</button>
+      <button class="mood-pill" data-bucket="classical">Classical</button>
+      <button class="mood-pill" data-bucket="disco">Disco</button>
+      <button class="mood-pill" data-bucket="reggae">Reggae</button>
+      <button class="mood-pill" data-bucket="80s">80s</button>
+      <button class="mood-pill" data-bucket="jazz">Jazz</button>
+      <button class="mood-pill" data-bucket="latin">Latin</button>
+      <button class="mood-pill" data-bucket="desi">Desi</button>
+      <button class="mood-pill" data-bucket="hindu devotional">Hindu Devotional</button>
+      <button class="mood-pill" data-bucket="gospel">Gospel</button>
+    </div>
   </div>
 
   <h3>Now Playing</h3>
   <div class="card">
-    <div id="now-playing-title">Nothing yet</div>
-    <div id="now-playing-artist" class="empty-hint" style="display:none"></div>
-    <div id="now-playing-empty">Search above and add a song to get started</div>
+    <div class="np-row">
+      <img id="now-playing-art" class="art art-lg" alt="" style="display:none">
+      <div class="np-text">
+        <div id="now-playing-title">Nothing yet</div>
+        <div id="now-playing-artist" class="empty-hint" style="display:none"></div>
+        <div id="now-playing-empty">Search above and add a song to get started</div>
+      </div>
+    </div>
     <div class="controls" id="controls" style="display:none">
       <button class="ctrl-btn" id="play-pause-btn">⏯</button>
       <button class="ctrl-btn secondary" id="skip-btn">⏭</button>
@@ -786,11 +1108,31 @@ GUEST_PAGE = """
   <div id="search-results"></div>
 
   <div id="footer">
+    <div style="margin-bottom:0.9em;">
+      Enjoying the ride? Tell a friend:
+      <a href="https://ridermusic.vp-fun.com">ridermusic.vp-fun.com</a>
+      &middot; <a href="#" onclick="shareRiderMusic(); return false;">Share</a>
+    </div>
+    <script>
+    function shareRiderMusic() {
+      var url = 'https://ridermusic.vp-fun.com';
+      if (navigator.share) {
+        navigator.share({title: 'RiderMusic Jukebox', text: 'Be the DJ for your ride', url: url}).catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(
+          function () { alert('Link copied!'); },
+          function () { window.prompt('Copy this link:', url); }
+        );
+      } else {
+        window.prompt('Copy this link:', url);
+      }
+    }
+    </script>
     © 2026 <a href="https://verbenaprojects.com">Verbena Projects LLC</a> ·
     <a href="https://vp-fun.com">vp-fun.com</a> ·
     From the makers of <a href="https://musicmind.vp-fun.com/">MusicMind for Plex</a> ·
     <a href="https://musiclounge.vp-fun.com">MusicLounge for Plex</a> ·
-    Not affiliated with or endorsed by Plex. Plex is a trademark of Plex, Inc.
+    Not affiliated with or endorsed by Plex. Plex is a trademark of <a href="https://www.plex.tv/your-media/">Plex, Inc.</a>
   </div>
 
 </div>
@@ -798,21 +1140,45 @@ GUEST_PAGE = """
 <button id="back-to-top" aria-label="Back to top">↑</button>
 
 <script>
+let sessionEndCheckInFlight = false;
+async function checkSessionEnded() {
+  if (sessionEndCheckInFlight) return;
+  sessionEndCheckInFlight = true;
+  try {
+    const r = await fetch('/guest/ended');
+    const d = await r.json();
+    if (d.ended) { window.location.reload(); return; }
+  } catch (e) {}
+  sessionEndCheckInFlight = false;
+}
+
 async function refreshPlayback() {
   const res = await fetch('/guest/playback');
+  if (res.status === 401) { checkSessionEnded(); return; }
   const data = await res.json();
   const titleEl = document.getElementById('now-playing-title');
   const artistEl = document.getElementById('now-playing-artist');
   const emptyEl = document.getElementById('now-playing-empty');
   const controls = document.getElementById('controls');
+  const artEl = document.getElementById('now-playing-art');
 
   if (data.now_playing) {
+    const rk = String(data.now_playing.rating_key);
+    if (artEl.dataset.rk !== rk) {
+      artEl.dataset.rk = rk;
+      artEl.style.display = '';
+      artEl.onerror = () => { artEl.style.display = 'none'; };
+      artEl.src = '/guest/art/' + encodeURIComponent(rk);
+    }
     titleEl.textContent = (data.is_playing ? '▶ ' : '⏸ ') + data.now_playing.title;
-    artistEl.textContent = data.now_playing.artist;
+    artistEl.textContent = data.now_playing.artist +
+      (data.now_playing.source === 'radio' ? ' · Radio pick' : '');
     artistEl.style.display = 'block';
     emptyEl.style.display = 'none';
     controls.style.display = 'flex';
   } else {
+    artEl.style.display = 'none';
+    delete artEl.dataset.rk;
     titleEl.textContent = 'Nothing yet';
     artistEl.style.display = 'none';
     emptyEl.style.display = 'block';
@@ -833,8 +1199,47 @@ async function refreshQueue() {
   data.queue.forEach((t, i) => {
     const div = document.createElement('div');
     div.className = 'queue-row';
-    div.innerHTML = '<span><span class="queue-idx">' + (i + 1) + '</span>' +
-      t.title + ' — ' + t.artist + '</span>';
+
+    const main = document.createElement('div');
+    main.className = 'queue-main';
+    const idx = document.createElement('span');
+    idx.className = 'queue-idx';
+    idx.textContent = String(i + 1);
+    const img = document.createElement('img');
+    img.className = 'art';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => { img.style.display = 'none'; };
+    img.src = '/guest/art/' + encodeURIComponent(t.rating_key);
+    const text = document.createElement('span');
+    text.className = 'queue-text';
+    text.textContent = t.title + ' — ' + t.artist;
+    if (t.source === 'radio') {
+      const tag = document.createElement('span');
+      tag.className = 'radio-tag';
+      tag.textContent = 'Radio';
+      text.append(' ', tag);
+    }
+    main.append(idx, img, text);
+
+    const del = document.createElement('button');
+    del.className = 'q-del';
+    del.type = 'button';
+    del.setAttribute('aria-label', 'Remove from queue');
+    del.textContent = '✕';
+    del.addEventListener('click', async () => {
+      del.disabled = true;
+      try {
+        await fetch('/guest/queue/remove', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id: t.id})
+        });
+      } catch (e) {}
+      refreshQueue();
+    });
+
+    div.append(main, del);
     el.appendChild(div);
   });
 }
@@ -853,7 +1258,9 @@ let resultsObserver = null;
 function addTrackButton(t) {
   const div = document.createElement('div');
   div.className = 'result-row';
-  div.innerHTML = '<div class="result-info"><div class="t">' + t.title +
+  div.innerHTML = '<img class="art" loading="lazy" alt="" src="/guest/art/' +
+    encodeURIComponent(t.rating_key) + '" onerror="this.remove()">' +
+    '<div class="result-info"><div class="t">' + t.title +
     '</div><div class="a">' + t.artist + ' · ' + t.album + '</div></div>';
   const btn = document.createElement('button');
   btn.className = 'add-btn';
@@ -868,7 +1275,11 @@ function addTrackButton(t) {
     const result = await r.json();
     if (result.error) {
       btn.disabled = false;
-      alert(result.error === 'queue_limit_reached' ? 'Queue is full!' : result.error);
+      alert({
+        queue_limit_reached: "Queue is full!",
+        music_unavailable: "The music library is temporarily unavailable. Please let your driver know.",
+        track_not_found: "That song couldn't be found."
+      }[result.error] || result.error);
     } else {
       btn.textContent = 'Added';
       btn.classList.add('added');
@@ -948,13 +1359,22 @@ function maybeShowEndHint(results) {
   el.appendChild(doneEl);
 }
 
+let currentShuffleSeed = null;  // mood browsing: threaded through 'load more' so paging stays consistent
+
+let resultsRequestSeq = 0;
+
 async function loadResults(isFirstPage) {
-  if (isLoadingResults) return;
-  if (!isFirstPage && !hasMoreResults) return;
+  // Newest request wins. A first-page load (new search, pill tap,
+  // New mix) always goes through and supersedes anything in flight;
+  // previously it was silently dropped while a slow pool was loading.
+  // Only infinite-scroll "load more" waits its turn.
+  if (!isFirstPage && (isLoadingResults || !hasMoreResults)) return;
+  const mySeq = ++resultsRequestSeq;
   isLoadingResults = true;
 
   if (isFirstPage) {
     currentOffset = 0;
+    currentShuffleSeed = null;
     removeSentinel();
     showSpinner();
   } else {
@@ -971,6 +1391,7 @@ async function loadResults(isFirstPage) {
     url = '/guest/search?' + params.toString();
   } else {
     params.set('bucket', currentQueryValue);
+    if (currentShuffleSeed !== null) params.set('seed', String(currentShuffleSeed));
     url = '/guest/mood?' + params.toString();
   }
 
@@ -981,15 +1402,29 @@ async function loadResults(isFirstPage) {
   } catch (e) {
     data = { results: [], has_more: false, next_offset: currentOffset };
   }
+  const musicUnavailable = !!(data && data.error === 'music_unavailable');
+  if (!data || !Array.isArray(data.results)) {
+    data = { results: [], has_more: false, next_offset: currentOffset };
+  }
+
+  if (mySeq !== resultsRequestSeq) return;  // superseded by a newer request
 
   if (isFirstPage) {
     document.getElementById('search-results').innerHTML = '';
+    if (currentQueryType === 'mood') renderMoodHeader();
+    if (musicUnavailable) {
+      const m = document.createElement('div');
+      m.className = 'empty-hint';
+      m.textContent = 'The music library is temporarily unavailable. Please let your driver know.';
+      document.getElementById('search-results').appendChild(m);
+    }
   } else {
     removeLoadingMore();
   }
 
   appendResults(data.results, isFirstPage);
   hasMoreResults = !!data.has_more;
+  if (currentQueryType === 'mood' && typeof data.seed === 'number') currentShuffleSeed = data.seed;
   currentOffset = typeof data.next_offset === 'number'
     ? data.next_offset
     : currentOffset + data.results.length;
@@ -999,16 +1434,45 @@ async function loadResults(isFirstPage) {
   ensureSentinel();
 }
 
+let currentMoodLabel = '';
+
+function setActivePill(bucket) {
+  document.querySelectorAll('.mood-pill[data-bucket]').forEach(p => {
+    p.classList.toggle('active', p.dataset.bucket === bucket);
+  });
+}
+
+// Riders didn't discover that re-tapping a pill reshuffles, so say it
+// out loud: a header above mood results with an explicit "New mix".
+function renderMoodHeader() {
+  const el = document.getElementById('search-results');
+  const head = document.createElement('div');
+  head.className = 'results-head';
+  const label = document.createElement('span');
+  const name = document.createElement('strong');
+  name.textContent = currentMoodLabel;
+  label.append(name, document.createTextNode(' · random mix'));
+  const btn = document.createElement('button');
+  btn.className = 'remix-btn';
+  btn.textContent = '↻ New mix';
+  btn.addEventListener('click', () => doMood(currentQueryValue, currentMoodLabel));
+  head.append(label, btn);
+  el.appendChild(head);
+}
+
 function doSearch(q) {
   if (!q) return;
   currentQueryType = 'search';
   currentQueryValue = q;
+  setActivePill(null);
   loadResults(true);
 }
 
-function doMood(bucket) {
+function doMood(bucket, label) {
   currentQueryType = 'mood';
   currentQueryValue = bucket;
+  currentMoodLabel = label || bucket;
+  setActivePill(bucket);
   loadResults(true);
 }
 
@@ -1018,9 +1482,23 @@ document.getElementById('search-btn').addEventListener('click', () => {
 document.getElementById('search-box').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') doSearch(e.target.value.trim());
 });
-document.querySelectorAll('.mood-pill').forEach(btn => {
-  btn.addEventListener('click', () => doMood(btn.dataset.bucket));
+document.querySelectorAll('.mood-pill[data-bucket]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    doMood(btn.dataset.bucket, btn.textContent.trim());
+    closeMoodSheet();
+  });
 });
+
+function openMoodSheet() {
+  document.getElementById('sheet-backdrop').classList.add('open');
+  document.getElementById('mood-sheet').classList.add('open');
+}
+function closeMoodSheet() {
+  document.getElementById('sheet-backdrop').classList.remove('open');
+  document.getElementById('mood-sheet').classList.remove('open');
+}
+document.getElementById('more-moods-btn').addEventListener('click', openMoodSheet);
+document.getElementById('sheet-backdrop').addEventListener('click', closeMoodSheet);
 
 document.getElementById('play-pause-btn').addEventListener('click', async () => {
   const res = await fetch('/guest/playback');
@@ -1066,9 +1544,18 @@ refreshQueue();
 
 
 def register_guest_page_route(app):
-    from ridermusic_sessions import require_active_session
+    from ridermusic_sessions import validate_session, COOKIE_NAME
+    from ridermusic_feedback import get_ended_session, render_ended_page
 
     @app.route("/guest")
-    @require_active_session
     def guest_page():
-        return GUEST_PAGE
+        db = get_db()
+        token = request.cookies.get(COOKIE_NAME)
+        if validate_session(db, token):
+            return GUEST_PAGE
+        # Ride over (driver ended it, or it timed out): thank-you screen
+        # with the feedback link instead of a bare 401.
+        ended = get_ended_session(db, token)
+        if ended:
+            return render_ended_page(ended)
+        return jsonify({"error": "session_expired"}), 401
