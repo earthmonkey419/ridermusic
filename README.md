@@ -25,7 +25,8 @@ Guest phone (portal)  ->  RiderMusic Jukebox for Plex backend  ->  Driver's phon
                         Plex Media Server
 ```
 
-- **Guest portal:** search, browse mood buckets (genre-tag based —
+- **Guest portal:** search by song, artist, or genre (type "new wave"
+  or "disco" and get songs from that genre), browse mood buckets (genre-tag based —
   Chill, Dance, R&B, Disco, 80s, Country, Hip Hop, Classical,
   Electronic, Rock, Pop, Jazz, Reggae, Latin), add to queue,
   play/pause/skip, volume (clamped to a driver-set ceiling). Search

@@ -193,9 +193,125 @@ def _paged_response(all_results, offset, limit):
     })
 
 
+# --- Genre matching for search -------------------------------------------
+#
+# A rider who types a genre ("new wave", "disco", "shoegaze") into the
+# search box gets songs from that genre, not just songs whose title or
+# artist happens to contain the word. Genre hits are merged into the
+# normal search pool alongside artist and title hits.
+#
+# Typing a mood bucket's name ("country", "hip hop", "80s") reuses that
+# bucket's keywords and exclusions, so typing a name returns the same
+# kind of tracks as tapping its pill. Any other text is matched as a
+# plain substring of the genre tags ("shoegaze" also catches
+# "shoegaze revival"), with space/hyphen variants treated as equal.
+#
+# Ordering: when the query IS a genre (an exact tag, or a bucket name)
+# the genre block goes right after artist matches, ahead of title
+# matches -- otherwise "rock" would be buried under "Rock the Casbah"
+# style title hits. When it's only a partial tag match the genre block
+# goes last, so an ordinary title search ("love") isn't swamped by
+# loosely related genres.
+
+_GENRE_MIN_QUERY_LEN = 3      # shorter queries match far too many tags
+_GENRE_RESULT_LIMIT = 500
+
+
+def _genre_query_ok(q):
+    return len((q or "").strip()) >= _GENRE_MIN_QUERY_LEN
+
+
+def _genre_match_terms(q):
+    """Return (keywords, excluded_tags, is_bucket) for a search query."""
+    q_norm = " ".join((q or "").lower().split())
+    if q_norm in MOOD_BUCKETS:
+        return (
+            list(MOOD_BUCKETS[q_norm]),
+            set(MOOD_BUCKET_EXCLUDED_TAGS.get(q_norm, set())),
+            True,
+        )
+    variants = {q_norm, q_norm.replace(" ", "-"), q_norm.replace("-", " ")}
+    return sorted(variants), set(), False
+
+
+def _like_escape(s):
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _musicmind_genre_rows(conn, q, limit=_GENRE_RESULT_LIMIT):
+    """Genre matches from MusicMind's track_tags, most popular first.
+    Returns (rows, exact). Uses one SQL statement (no giant IN list) so
+    a broad genre like "rock" can't hit SQLite's variable limit."""
+    keywords, excluded, is_bucket = _genre_match_terms(q)
+    like = " OR ".join(["LOWER(tag) LIKE ? ESCAPE '\\'"] * len(keywords))
+    params = [f"%{_like_escape(k)}%" for k in keywords]
+    excl_sql = ""
+    if excluded:
+        excl_sql = " AND LOWER(TRIM(tag)) NOT IN (%s)" % ",".join("?" * len(excluded))
+        params += sorted(excluded)
+
+    rows = conn.execute(
+        "SELECT rating_key, title, COALESCE(real_artist, artist) as artist, album, duration_ms "
+        "FROM tracks WHERE rating_key IN ("
+        f"  SELECT rating_key FROM track_tags WHERE ({like}){excl_sql}"
+        ") ORDER BY COALESCE(rating_count, 0) DESC, title LIMIT ?",
+        params + [limit],
+    ).fetchall()
+    if not rows:
+        return [], False
+
+    exact = is_bucket
+    if not exact:
+        ph = ",".join("?" * len(keywords))
+        exact = conn.execute(
+            f"SELECT 1 FROM track_tags WHERE LOWER(TRIM(tag)) IN ({ph}) LIMIT 1",
+            keywords,
+        ).fetchone() is not None
+    return rows, exact
+
+
+def _plex_genre_tracks(section, q, max_tags=12, per_tag=40, cap=200):
+    """Live-Plex genre matches (no MusicMind). One Plex query per
+    matching tag, so it's bounded: closest tags first (exact match, then
+    shortest), at most `max_tags` tags and `cap` tracks. Returns
+    (tracks, exact). Never raises -- genre is a bonus layer."""
+    try:
+        keywords, excluded, is_bucket = _genre_match_terms(q)
+        kwset = set(keywords)
+        all_genres = section.listFilterChoices("genre", libtype="track")
+        tags = [
+            g.title for g in all_genres
+            if any(kw in g.title.lower() for kw in keywords)
+            and g.title.lower() not in excluded
+        ]
+        if not tags:
+            return [], False
+        exact = is_bucket or any(t.lower() in kwset for t in tags)
+        tags.sort(key=lambda t: (t.lower() not in kwset, len(t), t.lower()))
+
+        tracks, seen = [], set()
+        for tag in tags[:max_tags]:
+            if len(tracks) >= cap:
+                break
+            try:
+                found = section.searchTracks(
+                    **{"track.genre": tag}, limit=per_tag, sort="ratingCount:desc"
+                )
+            except Exception:
+                continue
+            for t in found:
+                if t.ratingKey not in seen:
+                    seen.add(t.ratingKey)
+                    tracks.append(t)
+        return tracks[:cap], exact
+    except Exception:
+        return [], False
+
+
 def _build_search_results(section, plex, q):
-    """Same three-layer literal-then-fuzzy search as before, just with
-    wider candidate limits so there's enough to page through."""
+    """Same literal-then-fuzzy search as before (artist, title, fuzzy
+    fallback), plus a genre layer, with wider candidate limits so
+    there's enough to page through."""
     q_norm = _normalize_for_match(q)
     results = []
     seen_keys = set()
@@ -212,6 +328,22 @@ def _build_search_results(section, plex, q):
                 seen_keys.add(t.ratingKey)
                 results.append(_track_to_dict(t))
 
+    # Genre layer: tracks whose genre tag matches the query. Goes ahead
+    # of title matches when the query is itself a genre, behind them when
+    # it's only a partial tag match (see "Genre matching for search").
+    genre_tracks, genre_exact = ([], False)
+    if _genre_query_ok(q):
+        genre_tracks, genre_exact = _plex_genre_tracks(section, q)
+
+    def _add_genre_tracks():
+        for t in genre_tracks:
+            if t.ratingKey not in seen_keys:
+                seen_keys.add(t.ratingKey)
+                results.append(_track_to_dict(t))
+
+    if genre_exact:
+        _add_genre_tracks()
+
     # Layer 2: literal track title match.
     if len(results) < 75:
         title_matches = section.searchTracks(title__icontains=q, limit=75)
@@ -219,6 +351,9 @@ def _build_search_results(section, plex, q):
             if t.ratingKey not in seen_keys:
                 seen_keys.add(t.ratingKey)
                 results.append(_track_to_dict(t))
+
+    if not genre_exact:
+        _add_genre_tracks()
 
     # Layer 3: fuzzy hub search fallback, only when nothing literal matched.
     if not results:
@@ -268,6 +403,17 @@ def _musicmind_search(q, limit=500):
             "FROM tracks WHERE LOWER(title) LIKE ? LIMIT ?",
             (q_like_title, limit),
         ).fetchall()
+
+        # Genre matches (see "Genre matching for search"). A failure
+        # here -- e.g. an older MusicMind without track_tags -- must
+        # never take down the artist/title search, so it just yields
+        # no genre rows.
+        genre_rows, genre_exact = [], False
+        if _genre_query_ok(q):
+            try:
+                genre_rows, genre_exact = _musicmind_genre_rows(conn, q)
+            except Exception:
+                genre_rows, genre_exact = [], False
     finally:
         conn.close()
 
@@ -286,16 +432,24 @@ def _musicmind_search(q, limit=500):
 
     results = []
     seen = set()
-    for r in artist_rows:
-        d = _row_to_dict(r)
-        if d and d["rating_key"] not in seen:
-            seen.add(d["rating_key"])
-            results.append(d)
-    for r in title_rows:
-        d = _row_to_dict(r)
-        if d and d["rating_key"] not in seen:
-            seen.add(d["rating_key"])
-            results.append(d)
+
+    def _add(rows):
+        for r in rows:
+            d = _row_to_dict(r)
+            if d and d["rating_key"] not in seen:
+                seen.add(d["rating_key"])
+                results.append(d)
+
+    # Artist matches first, always. Then, if the query is itself a
+    # genre, the genre block ahead of title matches; otherwise titles
+    # first and the genre block last.
+    _add(artist_rows)
+    if genre_exact:
+        _add(genre_rows)
+        _add(title_rows)
+    else:
+        _add(title_rows)
+        _add(genre_rows)
 
     return results[:limit]
 
@@ -1050,7 +1204,7 @@ GUEST_PAGE = """
   <h1>Be the <span class="hl">DJ</span> for your ride</h1>
 
   <div class="search-row">
-    <input type="text" id="search-box" placeholder="Search songs, artists...">
+    <input type="text" id="search-box" placeholder="Search songs, artists, genres...">
     <button id="search-btn">Go</button>
   </div>
 
