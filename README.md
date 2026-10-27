@@ -10,11 +10,16 @@ scan it, search the driver's music library, and queue songs — no app
 install, no Plex account, no login. The driver's own phone plays the
 music through the car stereo; the passenger's phone is just a remote.
 
-**Status: early, working build.** The core loop (guest search/queue,
-driver playback, admin session control) runs end to end and has been
-tested on real hardware, including a working Docker image and a live
-deployment behind Cloudflare Tunnel. Not yet tested in a real moving
-car. Standalone product: does not require MusicMind to run.
+**Status: v2.0.0 released (October 2026).** The core loop (guest
+search/queue, driver playback, admin session control) runs end to end and
+has been tested on real hardware, including a working Docker image and a
+live deployment behind Cloudflare Tunnel. Not yet tested in a real moving
+car. Standalone product: does not require MusicMind to run. See "What's
+new in v2" below, and "Known limitations" for what's still open.
+
+Looking for a player for your own listening, or a shared jukebox for the
+house? That's [MusicLounge Player for Plex](https://github.com/earthmonkey419/musicloungeplayerforplex),
+RiderMusic's sibling from the same makers.
 
 ## How it works
 
@@ -143,8 +148,13 @@ tenth of a second locally.
 MusicMind's SQLite database:
 
 ```python
-MUSICMIND_DB_PATH = "/path/to/plex_music_brain.db"
+MUSICMIND_DB_PATH = "/path/to/musicmind.db"
 ```
+
+(MusicMind v3 renamed its database from `plex_music_brain.db` to
+`musicmind.db`. If you're still on the old name, point at whichever
+file you actually have.) The same database also feeds radio auto-fill
+(below), which otherwise falls back to Plex's own sonic analysis.
 
 Leave it unset (the default) and RiderMusic Jukebox for Plex behaves
 exactly as it does without MusicMind installed. If the path is set
@@ -235,8 +245,8 @@ over real HTTPS.
 
 ## What's new in v2
 
-- Gapless playback on the driver page (next track is preloaded and handed off)
-- Radio auto-fill: when the queue runs low, tracks similar to riders' picks are added
+- Gapless playback on the driver page (next track is preloaded and handed off), using the same engine as MusicLounge Player
+- Smart jukebox technology (radio auto-fill): when the queue runs low, tracks similar to riders' picks are added. Rider-added tracks always take priority over auto-picks
 - Dedicated Plex token helper (`make_plex_token.py`) and a clear "Plex is down" banner
 - Rider feedback form and driver-side feedback view
 - Guest album art, queue delete, and a Plex link on tracks
